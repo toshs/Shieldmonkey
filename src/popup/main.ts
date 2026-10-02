@@ -12,6 +12,10 @@ document.body.style.width = mobile ? `${Math.min(360, (screen.availWidth || scre
 document.body.style.height = mobile ? `${Math.min(400, screen.availHeight || screen.height || 400)}px` : '600px';
 
 const root = document.getElementById('root')!;
+const logoImage = root.querySelector<HTMLImageElement>('#popup-placeholder img') ?? document.createElement('img');
+if (!logoImage.hasAttribute('src')) logoImage.src = '/icons/icon48.png';
+logoImage.alt = '';
+logoImage.className = 'logo-img';
 const paths = {
     settings: '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8"/><path d="M12 2l1 2.7 2.8.5 2.2-1.8 2 2-1.8 2.2.5 2.8 2.7 1v2.8l-2.7 1-.5 2.8 1.8 2.2-2 2-2.2-1.8-2.8.5-1 2.7h-2.8l-1-2.7-2.8-.5-2.2 1.8-2-2 1.8-2.2-.5-2.8-2.7-1v-2.8l2.7-1 .5-2.8L3.3 5.4l2-2 2.2 1.8 2.8-.5L11.3 2z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>',
@@ -179,12 +183,9 @@ function render(): void {
     const container = el('div', 'popup-container');
     const header = el('header', 'popup-header');
     const logo = el('div', 'logo-area');
-    const image = el('img', 'logo-img');
-    image.src = '/icons/icon48.png';
-    image.alt = '';
     const global = el('div', 'global-switch-container');
     global.append(switchControl(extensionEnabled, t('appName'), checked => { void toggleGlobal(checked); }));
-    logo.append(image, el('h1', '', t('appName')), global);
+    logo.append(logoImage, el('h1', '', t('appName')), global);
     const tools = el('div', 'popup-tools');
     const themeIcon: Icon = theme === 'light' ? 'sun' : theme === 'dark' ? 'moon' : 'monitor';
     tools.append(
