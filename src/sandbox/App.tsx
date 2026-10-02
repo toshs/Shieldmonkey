@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { HashRouter, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import PopupApp from './popup/App';
-import OptionsApp from './options/App';
+
+const OptionsApp = lazy(() => import('./options/App'));
 
 // Redirect logic for legacy paths (e.g. #/settings -> #/options/settings)
 function RedirectToOptions() {
@@ -45,7 +46,7 @@ function SandboxApp() {
         <HashRouter>
             <Routes>
                 <Route path="/popup/*" element={<PopupApp />} />
-                <Route path="/options/*" element={<OptionsApp />} />
+                <Route path="/options/*" element={<Suspense fallback={null}><OptionsApp /></Suspense>} />
                 <Route path="*" element={<RedirectToOptions />} />
             </Routes>
             <HashSync />

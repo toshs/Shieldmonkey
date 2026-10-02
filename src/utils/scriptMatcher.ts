@@ -1,4 +1,4 @@
-import { parseMetadata } from './metadataParser';
+import { parseMetadata, type Metadata } from './metadataParser';
 import { matchPattern } from './urlMatcher';
 
 /**
@@ -9,7 +9,10 @@ import { matchPattern } from './urlMatcher';
  * 3. If no @match or @include are specified, it defaults to <all_urls> (returns true unless excluded).
  */
 export function isScriptMatchingUrl(scriptCode: string, url: string): boolean {
-    const metadata = parseMetadata(scriptCode);
+    return isMetadataMatchingUrl(parseMetadata(scriptCode), url);
+}
+
+export function isMetadataMatchingUrl(metadata: Metadata, url: string): boolean {
     const includePatterns = [...metadata.match, ...metadata.include];
     const excludePatterns = metadata.exclude;
 

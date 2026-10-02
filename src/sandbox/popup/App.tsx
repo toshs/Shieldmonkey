@@ -1,21 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Settings, FileText, Plus, Trash2, RefreshCw, Sun, Moon, Monitor, Edit } from 'lucide-react';
 import './App.css';
-import { parseMetadata } from '../../utils/metadataParser';
-import { isScriptMatchingUrl } from '../../utils/scriptMatcher';
 import { useI18n } from '../context/I18nContext';
-import { isValidHttpUrl } from '../../utils/urlValidator';
 import { bridge } from '../bridge/client';
-
-interface Script {
-  id: string;
-  name: string;
-  code: string;
-  enabled?: boolean;
-  updateUrl?: string;
-  downloadUrl?: string;
-  sourceUrl?: string;
-}
+import type { PopupScript } from '../bridge/types';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -27,7 +15,7 @@ const ToggleSwitch = ({ checked, onChange, disabled }: { checked: boolean, onCha
 );
 
 function App() {
-  const [activeScripts, setActiveScripts] = useState<Script[]>([]);
+  const [activeScripts, setActiveScripts] = useState<PopupScript[]>([]);
   const [currentUrl, setCurrentUrl] = useState<string>('');
   const [extensionEnabled, setExtensionEnabled] = useState(true);
   const [theme, setTheme] = useState<Theme>('dark');
@@ -46,8 +34,7 @@ function App() {
 
   useEffect(() => {
     const init = async () => {
-      // Get settings first to apply theme immediately
-      const data = await bridge.call('GET_SETTINGS');
+      const data = await bridge.call('GET_POPUP_DATA');
 
       // Apply theme
       const storedTheme = (data.theme as Theme) || 'dark';
@@ -56,24 +43,8 @@ function App() {
 
       setExtensionEnabled(data.extensionEnabled !== false);
 
-      // Get current tab URL
-      const url = await bridge.call('GET_CURRENT_TAB_URL');
-
-      // Only allow supported schemes (whitelist)
-      if (!url || !isValidHttpUrl(url)) {
-        return;
-      }
-
-      setCurrentUrl(url);
-
-      const scripts = (data.scripts || []) as Script[];
-
-      // Filter scripts that match current URL (regardless of enabled state, so we can toggle them)
-      const matched = scripts.filter(script => {
-        return isScriptMatchingUrl(script.code, url);
-      });
-
-      setActiveScripts(matched);
+      setCurrentUrl(data.currentUrl || '');
+      setActiveScripts(data.scripts);
     };
 
     init();
@@ -124,13 +95,7 @@ function App() {
     }
   };
 
-  const getUpdateUrl = (script: Script) => {
-    if (script.updateUrl || script.downloadUrl || script.sourceUrl) return script.updateUrl || script.downloadUrl || script.sourceUrl;
-    const metadata = parseMetadata(script.code);
-    return metadata.updateURL || metadata.downloadURL || metadata.installURL || metadata.source;
-  };
-
-  const checkForUpdate = (script: Script) => {
+  const checkForUpdate = (script: PopupScript) => {
     bridge.call('START_UPDATE_FLOW', { scriptId: script.id });
   };
 
@@ -181,7 +146,7 @@ function App() {
                   <button className="icon-btn" title={t('editTooltip')} onClick={() => editScript(script.id)} style={{ padding: '8px' }}>
                     <Edit size={18} />
                   </button>
-                  {getUpdateUrl(script) && (
+                  {script.hasUpdateUrl && (
                     <button className="icon-btn" title={t('checkForUpdatesTooltip')} onClick={() => checkForUpdate(script)} style={{ padding: '8px' }}>
                       <RefreshCw size={18} />
                     </button>

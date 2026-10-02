@@ -29,9 +29,9 @@ export const I18nProvider = ({ children }: { children: ReactNode }) => {
 
     // Initialize from storage
     useEffect(() => {
-        bridge.call('GET_SETTINGS').then((data) => {
-            if (data.locale) {
-                setLocaleState(data.locale as Locale);
+        bridge.call('GET_LOCALE').then((savedLocale) => {
+            if (savedLocale) {
+                setLocaleState(savedLocale as Locale);
             }
         });
     }, []);

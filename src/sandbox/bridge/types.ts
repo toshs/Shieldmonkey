@@ -1,5 +1,12 @@
 import type { Script, Theme } from '../options/types';
 
+export interface PopupScript {
+    id: string;
+    name: string;
+    enabled?: boolean;
+    hasUpdateUrl: boolean;
+}
+
 export interface BridgeActionMap {
     'GET_SETTINGS': {
         payload?: never;
@@ -12,6 +19,13 @@ export interface BridgeActionMap {
             autoBackup?: boolean;
         }
     };
+    'GET_LOCALE': { payload?: never; response: string | undefined };
+    'GET_POPUP_DATA': { payload?: never; response: {
+        theme?: Theme;
+        extensionEnabled?: boolean;
+        currentUrl?: string;
+        scripts: PopupScript[];
+    } };
     'UPDATE_THEME': { payload: Theme; response: void };
     'UPDATE_LOCALE': { payload: string; response: void };
     'TOGGLE_GLOBAL': { payload: boolean; response: void };
@@ -20,8 +34,6 @@ export interface BridgeActionMap {
     'SAVE_SCRIPT': { payload: Script; response: void };
     'OPEN_DASHBOARD': { payload?: { path?: string }; response: void };
     'OPEN_URL': { payload: string; response: void };
-    'OPEN_AI_SERVICE': { payload: 'chatgpt' | 'claude' | 'gemini'; response: void };
-    'GET_CURRENT_TAB_URL': { payload?: never; response: string | undefined };
     'GET_I18N_MESSAGE': { payload: { key: string, substitutions?: string | string[] }; response: string };
     'RELOAD_SCRIPTS': { payload?: never; response: void };
     'START_UPDATE_FLOW': { payload: { scriptId: string }; response: void };

@@ -5,7 +5,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { javascript, scopeCompletionSource } from '@codemirror/lang-javascript';
 import { userScriptMetadataCompletion } from '../codemirrorConfig';
 import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode';
-import { ArrowLeft, Save, Trash2, Info, Shield, Globe, Link as LinkIcon, X, Loader, Check, FileJson, Wrench, Undo2, Redo2, Sparkles, ClipboardCopy, ClipboardPaste } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Info, Shield, Globe, Link as LinkIcon, X, Loader, Check, FileJson, Wrench, Undo2, Redo2, ClipboardCopy, ClipboardPaste } from 'lucide-react';
 import { undo, redo, undoDepth, redoDepth } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import * as prettier from "prettier/standalone";
@@ -18,7 +18,7 @@ import { isValidHttpUrl, sanitizeToHttpUrl } from '../../../utils/urlValidator';
 import { type Script } from '../types';
 import { useI18n } from '../../context/I18nContext';
 import { copyText } from '../../../utils/clipboard';
-import AiTransferDialog from '../components/AiTransferDialog';
+import PasteScriptDialog from '../components/PasteScriptDialog';
 
 const ScriptEditor = () => {
     const { id } = useParams<{ id: string }>();
@@ -45,8 +45,8 @@ const ScriptEditor = () => {
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
     const [canUndo, setCanUndo] = useState(false);
     const [canRedo, setCanRedo] = useState(false);
-    const [aiDialogMode, setAiDialogMode] = useState<'ask' | 'paste' | null>(location.state?.openAiPaste ? 'paste' : null);
-    const [codeBeforeAiPaste, setCodeBeforeAiPaste] = useState<string | null>(null);
+    const [pasteDialogOpen, setPasteDialogOpen] = useState(!!location.state?.openPaste);
+    const [codeBeforePaste, setCodeBeforePaste] = useState<string | null>(null);
     const [copyNotice, setCopyNotice] = useState('');
     const toolbarRef = useRef<HTMLDivElement>(null);
 
@@ -149,7 +149,7 @@ const ScriptEditor = () => {
 
             await saveScript(updatedScript);
             setName(updatedScript.name);
-            setCodeBeforeAiPaste(null);
+            setCodeBeforePaste(null);
 
             setIsSaved(true);
             setTimeout(() => {
@@ -201,25 +201,25 @@ const ScriptEditor = () => {
     const handleCopyCode = async () => {
         setShowTools(false);
         if (await copyText(code)) {
-            setCopyNotice(t('aiCodeCopied'));
+            setCopyNotice(t('codeCopied'));
             setTimeout(() => setCopyNotice(''), 3000);
         } else {
-            showGenericModal('info', t('aiCopyCode'), <textarea readOnly value={code} onFocus={event => event.target.select()} style={{ width: '100%', minHeight: '40vh' }} />);
+            showGenericModal('info', t('copyCode'), <textarea readOnly value={code} onFocus={event => event.target.select()} style={{ width: '100%', minHeight: '40vh' }} />);
         }
     };
 
-    const handleApplyAiCode = (nextCode: string) => {
-        setCodeBeforeAiPaste(code);
+    const handleApplyPastedCode = (nextCode: string) => {
+        setCodeBeforePaste(code);
         setCode(nextCode);
         setName(parseMetadata(nextCode).name || name);
         setIsSaved(false);
     };
 
     const handleRestoreCode = () => {
-        if (codeBeforeAiPaste === null) return;
-        setCode(codeBeforeAiPaste);
-        setName(parseMetadata(codeBeforeAiPaste).name || name);
-        setCodeBeforeAiPaste(null);
+        if (codeBeforePaste === null) return;
+        setCode(codeBeforePaste);
+        setName(parseMetadata(codeBeforePaste).name || name);
+        setCodeBeforePaste(null);
         setShowTools(false);
     };
 
@@ -318,7 +318,7 @@ const ScriptEditor = () => {
 
     return (
         <div className="app-container">
-            {aiDialogMode && <AiTransferDialog code={code} initialMode={aiDialogMode} onApply={handleApplyAiCode} onClose={() => setAiDialogMode(null)} />}
+            {pasteDialogOpen && <PasteScriptDialog onApply={handleApplyPastedCode} onClose={() => setPasteDialogOpen(false)} />}
             {/* Mobile Overlay */}
             {isMobileInfoOpen && (
                 <div
@@ -577,15 +577,15 @@ const ScriptEditor = () => {
                                     </button>
                                     <button className="btn-secondary" onClick={handleCopyCode}>
                                         <ClipboardCopy size={16} />
-                                        <span>{t('aiCopyCode')}</span>
+                                        <span>{t('copyCode')}</span>
                                     </button>
-                                    <button className="btn-secondary" onClick={() => setAiDialogMode('paste')}>
+                                    <button className="btn-secondary" onClick={() => setPasteDialogOpen(true)}>
                                         <ClipboardPaste size={16} />
-                                        <span>{t('aiPasteTab')}</span>
+                                        <span>{t('pasteDialogTitle')}</span>
                                     </button>
-                                    {codeBeforeAiPaste !== null && <button className="btn-secondary" onClick={handleRestoreCode}>
+                                    {codeBeforePaste !== null && <button className="btn-secondary" onClick={handleRestoreCode}>
                                         <Undo2 size={16} />
-                                        <span>{t('aiUndoImport')}</span>
+                                        <span>{t('restorePastedCode')}</span>
                                     </button>}
                                 </>
                             ) : (
@@ -649,13 +649,13 @@ const ScriptEditor = () => {
                                                 <span>Format</span>
                                             </button>
                                             <button className="btn-secondary" onClick={handleCopyCode} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
-                                                <ClipboardCopy size={16} /><span>{t('aiCopyCode')}</span>
+                                                <ClipboardCopy size={16} /><span>{t('copyCode')}</span>
                                             </button>
-                                            <button className="btn-secondary" onClick={() => { setAiDialogMode('paste'); setShowTools(false); }} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
-                                                <ClipboardPaste size={16} /><span>{t('aiPasteTab')}</span>
+                                            <button className="btn-secondary" onClick={() => { setPasteDialogOpen(true); setShowTools(false); }} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
+                                                <ClipboardPaste size={16} /><span>{t('pasteDialogTitle')}</span>
                                             </button>
-                                            {codeBeforeAiPaste !== null && <button className="btn-secondary" onClick={handleRestoreCode} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
-                                                <Undo2 size={16} /><span>{t('aiUndoImport')}</span>
+                                            {codeBeforePaste !== null && <button className="btn-secondary" onClick={handleRestoreCode} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
+                                                <Undo2 size={16} /><span>{t('restorePastedCode')}</span>
                                             </button>}
                                         </div>
                                     )}
@@ -671,10 +671,6 @@ const ScriptEditor = () => {
                                     </button>
                                 </>
                             )}
-
-                            <button className="btn-secondary" onClick={() => setAiDialogMode('ask')} title={t('aiDialogTitle')}>
-                                <Sparkles size={16} /><span>{t('aiOpenDialog')}</span>
-                            </button>
 
                             <button
                                 className="btn-primary"

@@ -1,8 +1,11 @@
 import { handleSelectBackupDir, handleGetBackupDirName, handleRunBackup, handleRunRestore } from './backupHandlers';
 import { processScriptContent } from '../utils/importManager';
-import type { TypedBridgeMessage } from '../sandbox/bridge/types';
+import type { PopupScript, TypedBridgeMessage } from '../sandbox/bridge/types';
 import { isMobile, isUserScriptsAvailable } from '../utils/browserPolyfill';
 import type { Script } from '../sandbox/options/types';
+import { isValidHttpUrl } from '../utils/urlValidator';
+import { isMetadataMatchingUrl } from '../utils/scriptMatcher';
+import { parseMetadata } from '../utils/metadataParser';
 
 async function downloadJson(data: string, filename: string): Promise<void> {
     const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
@@ -144,6 +147,39 @@ export function initBridge() {
                     result = await chrome.storage.local.get(keys);
                     break;
                 }
+                case 'GET_LOCALE': {
+                    const data = await chrome.storage.local.get('locale');
+                    result = data.locale;
+                    break;
+                }
+                case 'GET_POPUP_DATA': {
+                    const [data, tabs] = await Promise.all([
+                        chrome.storage.local.get(['scripts', 'theme', 'extensionEnabled']),
+                        chrome.tabs.query({ active: true, currentWindow: true })
+                    ]);
+                    const currentUrl = tabs[0]?.url;
+                    const scripts: PopupScript[] = [];
+                    if (currentUrl && isValidHttpUrl(currentUrl) && Array.isArray(data.scripts)) {
+                        for (const script of data.scripts as Script[]) {
+                            const metadata = parseMetadata(script.code);
+                            if (!isMetadataMatchingUrl(metadata, currentUrl)) continue;
+                            const links = script as Script & { updateUrl?: string; downloadUrl?: string };
+                            scripts.push({
+                                id: script.id,
+                                name: script.name,
+                                enabled: script.enabled,
+                                hasUpdateUrl: !!(links.updateUrl || links.downloadUrl || script.sourceUrl || metadata.updateURL || metadata.downloadURL || metadata.installURL || metadata.source)
+                            });
+                        }
+                    }
+                    result = {
+                        theme: data.theme,
+                        extensionEnabled: data.extensionEnabled,
+                        currentUrl: currentUrl && isValidHttpUrl(currentUrl) ? currentUrl : undefined,
+                        scripts
+                    };
+                    break;
+                }
                 case 'UPDATE_THEME':
                     await chrome.storage.local.set({ theme: typedData.payload });
                     break;
@@ -202,22 +238,6 @@ export function initBridge() {
                         console.error(`Blocked unauthorized OPEN_URL request to: ${typedData.payload}`);
                         throw new Error("URL not whitelisted");
                     }
-                    break;
-                }
-                case 'OPEN_AI_SERVICE': {
-                    let url: string | undefined;
-                    switch (typedData.payload) {
-                        case 'chatgpt': url = 'https://chatgpt.com/'; break;
-                        case 'claude': url = 'https://claude.ai/'; break;
-                        case 'gemini': url = 'https://gemini.google.com/app'; break;
-                    }
-                    if (!url) throw new Error('Unknown AI service');
-                    await chrome.tabs.create({ url, active: true });
-                    break;
-                }
-                case 'GET_CURRENT_TAB_URL': {
-                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                    result = tab?.url;
                     break;
                 }
                 case 'GET_I18N_MESSAGE':

@@ -159,7 +159,7 @@ const Scripts = () => {
                         <div className="header-actions">
                             <button className="btn-secondary" onClick={handleImportFile}><FileUp size={16} /> {t('importFile')}</button>
                             {!isMobile() && <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>}
-                            <button className="btn-secondary" onClick={() => navigate('/options/new', { state: { openAiPaste: true } })}><ClipboardPaste size={16} /> {t('aiCreateFromPaste')}</button>
+                            <button className="btn-secondary" onClick={() => navigate('/options/new', { state: { openPaste: true } })}><ClipboardPaste size={16} /> {t('createFromPaste')}</button>
                             <button className="btn-primary" onClick={handleNewScript}><Plus size={16} /> {t('newScript')}</button>
                         </div>
                     </div>
