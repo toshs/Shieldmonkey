@@ -1,6 +1,64 @@
 import { handleSelectBackupDir, handleGetBackupDirName, handleRunBackup, handleRunRestore } from './backupHandlers';
 import { processScriptContent } from '../utils/importManager';
 import type { TypedBridgeMessage } from '../sandbox/bridge/types';
+import { isMobile, isUserScriptsAvailable } from '../utils/browserPolyfill';
+import type { Script } from '../sandbox/options/types';
+
+async function downloadJson(data: string, filename: string): Promise<void> {
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+    try {
+        const downloadId = await new Promise<number>((resolve, reject) => {
+            chrome.downloads.download({
+                url,
+                filename,
+                saveAs: false
+            }, id => chrome.runtime.lastError
+                ? reject(new Error(chrome.runtime.lastError.message))
+                : id === undefined ? reject(new Error('Download did not start')) : resolve(id));
+        });
+        await new Promise<void>((resolve, reject) => {
+            let settled = false;
+            const timeout = setTimeout(() => finish(new Error('Backup download did not complete')), 120000);
+            const finish = (error?: Error) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
+                chrome.downloads.onChanged.removeListener(onChanged);
+                if (error) reject(error);
+                else resolve();
+            };
+            const onChanged = (delta: chrome.downloads.DownloadDelta) => {
+                if (delta.id !== downloadId) return;
+                if (delta.error?.current) finish(new Error(delta.error.current));
+                else if (delta.state?.current === 'complete') finish();
+            };
+            chrome.downloads.onChanged.addListener(onChanged);
+            // A small download can finish before the listener is attached.
+            chrome.downloads.search({ id: downloadId }, items => {
+                if (chrome.runtime.lastError) finish(new Error(chrome.runtime.lastError.message));
+                else if (items[0]?.state === 'complete') finish();
+                else if (items[0]?.state === 'interrupted') finish(new Error(items[0].error || 'Download interrupted'));
+            });
+        });
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+async function downloadMobileBackup(scripts: unknown[], version: string): Promise<void> {
+    const data = JSON.stringify({ timestamp: new Date().toISOString(), version, scripts }, null, 2);
+    const filename = `shieldmonkey_autobackup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    await downloadJson(data, filename);
+}
+
+let autoBackupTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleAutoBackup() {
+    if (autoBackupTimer) clearTimeout(autoBackupTimer);
+    autoBackupTimer = setTimeout(() => {
+        autoBackupTimer = undefined;
+        void triggerAutoBackup().catch(error => console.error('Auto-backup failed in host:', error));
+    }, 1500);
+}
 
 async function handleImportFile() {
     if (!('showOpenFilePicker' in window)) {
@@ -50,23 +108,17 @@ async function handleImportDirectory() {
     }
 }
 async function triggerAutoBackup() {
-    console.log("Bridge: triggerAutoBackup initiated");
-    try {
-        const { autoBackup, scripts } = await chrome.storage.local.get(['autoBackup', 'scripts']);
-        if (autoBackup && Array.isArray(scripts)) {
-            const version = chrome.runtime.getManifest().version;
-            // Filter for valid objects
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const scriptsToBackup = (scripts as any[]).filter(s => typeof s === 'object');
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await handleRunBackup(scriptsToBackup as any[], version);
-            // Update last backup time? Could do here or in handleRunBackup. 
-            // background logic did it, maybe we should message background? 
-            // Or sets directly to storage since we have permission.
-            await chrome.storage.local.set({ lastBackupTime: new Date().toISOString() });
+    const { autoBackup, scripts } = await chrome.storage.local.get(['autoBackup', 'scripts']);
+    if (autoBackup && Array.isArray(scripts)) {
+        const version = chrome.runtime.getManifest().version;
+        const scriptsToBackup = (scripts as unknown[]).filter((script): script is Script =>
+            !!script && typeof script === 'object' && 'id' in script && 'code' in script);
+        if (isMobile()) {
+            await downloadMobileBackup(scriptsToBackup, version);
+        } else {
+            await handleRunBackup(scriptsToBackup, version);
         }
-    } catch (e) {
-        console.error("Auto-backup failed in host:", e);
+        await chrome.storage.local.set({ lastBackupTime: new Date().toISOString() });
     }
 }
 
@@ -103,25 +155,27 @@ export function initBridge() {
                     break;
                 case 'UPDATE_BACKUP_SETTINGS':
                     await chrome.storage.local.set(typedData.payload);
+                    if (isMobile() && typedData.payload.autoBackup === true) await triggerAutoBackup();
                     break;
                 case 'GET_APP_INFO':
                     result = { version: chrome.runtime.getManifest().version };
                     break;
                 case 'UPDATE_SCRIPTS':
                     await chrome.storage.local.set({ scripts: typedData.payload });
+                    scheduleAutoBackup();
                     break;
                 case 'TOGGLE_SCRIPT':
                     // We need to forward this to background
                     await chrome.runtime.sendMessage({ type: 'TOGGLE_SCRIPT', scriptId: typedData.payload.scriptId, enabled: typedData.payload.enabled });
-                    triggerAutoBackup();
+                    scheduleAutoBackup();
                     break;
                 case 'DELETE_SCRIPT':
                     await chrome.runtime.sendMessage({ type: 'DELETE_SCRIPT', scriptId: typedData.payload.scriptId });
-                    triggerAutoBackup();
+                    scheduleAutoBackup();
                     break;
                 case 'SAVE_SCRIPT':
                     await chrome.runtime.sendMessage({ type: 'SAVE_SCRIPT', script: typedData.payload });
-                    triggerAutoBackup();
+                    scheduleAutoBackup();
                     break;
                 case 'RELOAD_SCRIPTS':
                     await chrome.runtime.sendMessage({ type: 'RELOAD_SCRIPTS' });
@@ -188,36 +242,7 @@ export function initBridge() {
                     result = await handleRunRestore(typedData.payload.scripts);
                     break;
                 case 'CHECK_USER_SCRIPTS_PERMISSION':
-                    // Check if API exists and permission is granted
-                    // In some browsers/configurations, API might be visible only after checking permissions?
-                    // But generally, check permission first.
-                    try {
-                        const hasPermission = await chrome.permissions.contains({ permissions: ['userScripts'] });
-                        // If we have permission, we hope the API is available. 
-                        // If not available despite permission, likely platform not supported or needs restart.
-                        // But returning false prompts the user to "Fix / Grant", which is correct flow.
-                        // If API is available, we assume permission is implicitly okay (or we verify it).
-                        if (chrome.userScripts) {
-                            result = true;
-                        } else {
-                            // API missing. Is permission granted?
-                            // If yes, returning false might be confusing if re-requesting doesn't fix it.
-                            // But usually it means we need to grant it.
-                            result = hasPermission && !!chrome.userScripts;
-
-                            // Fallback: If hasPermission is true but API is missing, maybe return false to trigger help?
-                            // Let's stick to safe check: both must be true-ish.
-                            if (hasPermission && !chrome.userScripts) {
-                                console.warn("Permission 'userScripts' is granted but API is undefined.");
-                                result = false;
-                            } else {
-                                result = hasPermission;
-                            }
-                        }
-                    } catch (e) {
-                        console.error("Permission check failed", e);
-                        result = false;
-                    }
+                    result = await isUserScriptsAvailable();
                     break;
                 case 'REQUEST_USER_SCRIPTS_PERMISSION':
                     // Must be called from a user gesture (clicking the button in iframe -> postMessage -> here)
@@ -272,30 +297,8 @@ export function initBridge() {
                     result = await handleImportDirectory();
                     break;
                 case 'DOWNLOAD_JSON': {
-                    const blob = new Blob([typedData.payload.data], { type: 'application/json' });
-                    // First create Object URL
-                    const url = URL.createObjectURL(blob);
-
-                    try {
-                        // Use chrome.downloads to download the file directly in the host context
-                        await new Promise<void>((resolve, reject) => {
-                            chrome.downloads.download({
-                                url: url,
-                                filename: typedData.payload.filename,
-                                saveAs: false
-                            }, () => {
-                                if (chrome.runtime.lastError) {
-                                    reject(new Error(chrome.runtime.lastError.message));
-                                } else {
-                                    resolve();
-                                }
-                            });
-                        });
-                        result = true;
-                    } finally {
-                        // Clean up URL after a bit so download can start
-                        setTimeout(() => URL.revokeObjectURL(url), 10000);
-                    }
+                    await downloadJson(typedData.payload.data, typedData.payload.filename);
+                    result = true;
                     break;
                 }
                 default:

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/useApp';
@@ -8,6 +8,7 @@ import { parseMetadata } from '../../../utils/metadataParser';
 import { importFromFileLegacy, importFromDirectoryLegacy } from '../../../utils/importManager';
 import { useI18n } from '../../context/I18nContext';
 import { bridge } from '../../bridge/client';
+import { isMobile } from '../../../utils/browserPolyfill';
 import type { Script } from '../types';
 
 const Scripts = () => {
@@ -16,6 +17,22 @@ const Scripts = () => {
     const { showModal } = useModal();
     const navigate = useNavigate();
     const [selectedScriptIds, setSelectedScriptIds] = useState<Set<string>>(new Set());
+    const [query, setQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+    const [sortBy, setSortBy] = useState<'name' | 'recent'>('name');
+    const visibleScripts = useMemo(() => {
+        const term = query.trim().toLocaleLowerCase();
+        return scripts.filter((script: Script) => {
+            if (statusFilter === 'enabled' && !script.enabled) return false;
+            if (statusFilter === 'disabled' && script.enabled) return false;
+            if (!term) return true;
+            const metadata = parseMetadata(script.code);
+            return [script.name, metadata.namespace, script.sourceUrl]
+                .some(value => value?.toLocaleLowerCase().includes(term));
+        }).sort((a: Script, b: Script) => sortBy === 'recent'
+            ? (b.updateDate || b.installDate || 0) - (a.updateDate || a.installDate || 0)
+            : a.name.localeCompare(b.name));
+    }, [scripts, query, statusFilter, sortBy]);
 
     const handleNewScript = async () => {
         navigate('/options/new');
@@ -112,10 +129,10 @@ const Scripts = () => {
     };
 
     const toggleSelectAll = () => {
-        if (selectedScriptIds.size === scripts.length) {
-            setSelectedScriptIds(new Set());
+        if (visibleScripts.every((script: Script) => selectedScriptIds.has(script.id))) {
+            setSelectedScriptIds(prev => new Set([...prev].filter(id => !visibleScripts.some((script: Script) => script.id === id))));
         } else {
-            setSelectedScriptIds(new Set(scripts.map((s: Script) => s.id)));
+            setSelectedScriptIds(prev => new Set([...prev, ...visibleScripts.map((script: Script) => script.id)]));
         }
     };
 
@@ -123,6 +140,7 @@ const Scripts = () => {
         showModal('confirm', t('deleteScriptTitle'), t('deleteScriptConfirm', [script.name]), async () => {
             try {
                 await deleteScript(script.id);
+                setSelectedScriptIds(prev => new Set([...prev].filter(id => id !== script.id)));
             } catch (e) {
                 console.error("Failed to delete", e);
                 showModal('error', t('deleteFailed'), (e as Error).message);
@@ -140,11 +158,32 @@ const Scripts = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <div className="header-actions">
                             <button className="btn-secondary" onClick={handleImportFile}><FileUp size={16} /> {t('importFile')}</button>
-                            <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>
+                            {!isMobile() && <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>}
                             <button className="btn-primary" onClick={handleNewScript}><Plus size={16} /> {t('newScript')}</button>
                         </div>
                     </div>
                 </div>
+
+                {scripts.length > 0 && (
+                    <div className="script-filters">
+                        <input
+                            type="search"
+                            value={query}
+                            onChange={event => setQuery(event.target.value)}
+                            placeholder={t('searchScripts')}
+                            aria-label={t('searchScripts')}
+                        />
+                        <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} aria-label={t('filterScripts')}>
+                            <option value="all">{t('filterAll')}</option>
+                            <option value="enabled">{t('filterEnabled')}</option>
+                            <option value="disabled">{t('filterDisabled')}</option>
+                        </select>
+                        <select value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)} aria-label={t('sortScripts')}>
+                            <option value="name">{t('sortName')}</option>
+                            <option value="recent">{t('sortRecent')}</option>
+                        </select>
+                    </div>
+                )}
 
                 {scripts.length === 0 ? (
                     <div className="empty-dashboard" style={{ textAlign: 'center', marginTop: '4rem', color: 'var(--text-secondary)', flex: 1, overflow: 'auto' }}>
@@ -154,13 +193,15 @@ const Scripts = () => {
                         <h3>{t('noScriptsFound')}</h3>
                         <p>{t('createScriptToStart')}</p>
                     </div>
+                ) : visibleScripts.length === 0 ? (
+                    <div className="empty-dashboard">{t('noSearchResults')}</div>
                 ) : (
-                    <div style={{ overflow: 'auto', flex: 1, width: '100%', borderTop: '1px solid var(--border-color)', padding: '0 0 100px 0' }}>
+                    <div className="script-list-scroll">
                         <table className="script-table compact" style={{ minWidth: '800px' }}>
                             <thead>
                                 <tr>
                                     <th style={{ width: '40px', textAlign: 'center' }}>
-                                        <input type="checkbox" checked={scripts.length > 0 && selectedScriptIds.size === scripts.length} onChange={toggleSelectAll} style={{ cursor: 'pointer' }} />
+                                        <input type="checkbox" checked={visibleScripts.length > 0 && visibleScripts.every((script: Script) => selectedScriptIds.has(script.id))} onChange={toggleSelectAll} style={{ cursor: 'pointer' }} aria-label={t('selectAllVisible')} />
                                     </th>
                                     <th style={{ width: '60px' }}>{t('enabledHeader')}</th>
                                     <th>{t('nameHeader')}</th>
@@ -172,7 +213,7 @@ const Scripts = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {scripts.map((script: Script) => {
+                                {visibleScripts.map((script: Script) => {
                                     const metadata = parseMetadata(script.code);
 
                                     return (
@@ -236,26 +277,40 @@ const Scripts = () => {
                                 })}
                             </tbody>
                         </table>
+                        <div className="mobile-script-list">
+                            <label className="select-visible">
+                                <input type="checkbox" checked={visibleScripts.every((script: Script) => selectedScriptIds.has(script.id))} onChange={toggleSelectAll} />
+                                {t('selectAllVisible')}
+                            </label>
+                            {visibleScripts.map((script: Script) => {
+                                const metadata = parseMetadata(script.code);
+                                return (
+                                    <article className="mobile-script-card" key={script.id}>
+                                        <div className="mobile-script-card-header">
+                                            <input type="checkbox" checked={selectedScriptIds.has(script.id)} onChange={() => toggleScriptSelection(script.id)} aria-label={`${t('selectScript')} ${script.name}`} />
+                                            <button className="mobile-script-name" onClick={() => navigate(`/options/scripts/${script.id}`)}>{script.name}</button>
+                                            <ToggleSwitch checked={!!script.enabled} onChange={() => toggleScript(script, !script.enabled)} />
+                                        </div>
+                                        <div className="mobile-script-meta">
+                                            {metadata.namespace && <span>{metadata.namespace}</span>}
+                                            {metadata.version && <span>v{metadata.version}</span>}
+                                            <span>{script.sourceUrl ? t('remoteLabel') : t('localLabel')}</span>
+                                        </div>
+                                        <div className="mobile-script-actions">
+                                            <button className="btn-secondary" onClick={() => navigate(`/options/scripts/${script.id}`)}>{t('editTooltip')}</button>
+                                            {getUpdateUrl(script) && <button className="btn-secondary" onClick={() => handleCheckUpdate(script)}>{t('checkForUpdatesTooltip')}</button>}
+                                            <button className="btn-secondary mobile-delete" onClick={() => handleDeleteScript(script)}>{t('deleteTooltip')}</button>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
             </div>
 
             {selectedScriptIds.size > 0 && (
-                <div style={{
-                    position: 'fixed',
-                    bottom: '24px',
-                    right: '32px',
-                    background: 'var(--surface-bg)',
-                    border: '1px solid var(--border-color)',
-                    padding: '12px 16px',
-                    borderRadius: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                    zIndex: 100,
-                    animation: 'slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
-                }}>
+                <div className="bulk-actions">
                     <span style={{ fontSize: '0.9rem', fontWeight: 600, marginRight: '8px', color: 'var(--text-secondary)' }}>
                         {t('selectedCount', [String(selectedScriptIds.size)])}
                     </span>

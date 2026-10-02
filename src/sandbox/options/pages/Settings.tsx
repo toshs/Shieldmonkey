@@ -215,9 +215,17 @@ const Settings = () => {
         }
     };
 
-    const toggleAutoBackup = (checked: boolean) => {
+    const toggleAutoBackup = async (checked: boolean) => {
         setAutoBackup(checked);
-        bridge.call('UPDATE_BACKUP_SETTINGS', { autoBackup: checked });
+        try {
+            await bridge.call('UPDATE_BACKUP_SETTINGS', { autoBackup: checked });
+            if (checked) {
+                const settings = await bridge.call('GET_SETTINGS');
+                if (settings.lastBackupTime) setLastBackupTime(settings.lastBackupTime);
+            }
+        } catch (error) {
+            showModal('error', t('backupError'), (error as Error).message);
+        }
     };
 
     return (
@@ -319,6 +327,22 @@ const Settings = () => {
                 </div>
 
                 <div>
+                    {!fsSupported && (
+                        <div style={{ marginBottom: '32px' }}>
+                            <h3 style={{ fontSize: '1rem', marginBottom: '16px', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('sectionAutoBackup')}</h3>
+                            <div className="settings-card mobile-auto-backup">
+                                <div>
+                                    <p style={{ margin: 0 }}>{t('autoBackupMobileDesc')}</p>
+                                    <small>{t('autoBackupMobileFile')}</small>
+                                    {lastBackupTime && <small>{t('lastBackupPrefix')}{new Date(lastBackupTime).toLocaleString()}</small>}
+                                </div>
+                                <label className="switch">
+                                    <input type="checkbox" checked={autoBackup} onChange={event => toggleAutoBackup(event.target.checked)} aria-label={t('sectionAutoBackup')} />
+                                    <span className="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    )}
                     {fsSupported ? (
                         /* CHROMIUM / FILE SYSTEM API SUPPORTED UI */
                         <>

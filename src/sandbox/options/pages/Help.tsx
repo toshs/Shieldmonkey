@@ -26,6 +26,11 @@ const Help = () => {
             }
         };
         check();
+        const checkWhenVisible = () => {
+            if (document.visibilityState === 'visible') check();
+        };
+        window.addEventListener('focus', check);
+        document.addEventListener('visibilitychange', checkWhenVisible);
 
         // Handle hash navigation
         if (window.location.hash === '#permission-help') {
@@ -33,7 +38,11 @@ const Help = () => {
             if (el) el.scrollIntoView({ behavior: 'smooth' });
         }
 
-        return () => { mounted = false; };
+        return () => {
+            mounted = false;
+            window.removeEventListener('focus', check);
+            document.removeEventListener('visibilitychange', checkWhenVisible);
+        };
     }, []);
 
     const handleRequestPermission = async () => {
@@ -206,4 +215,3 @@ const Help = () => {
 };
 
 export default Help;
-

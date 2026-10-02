@@ -31,7 +31,9 @@ function App() {
   const [currentUrl, setCurrentUrl] = useState<string>('');
   const [extensionEnabled, setExtensionEnabled] = useState(true);
   const [theme, setTheme] = useState<Theme>('dark');
+  const [query, setQuery] = useState('');
   const { t } = useI18n();
+  const visibleScripts = activeScripts.filter(script => script.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
 
   const applyTheme = (newTheme: Theme) => {
     if (newTheme === 'system') {
@@ -160,12 +162,16 @@ function App() {
         </div>
       </header>
       <main className="popup-main">
+        {activeScripts.length > 5 && (
+          <input className="popup-search" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={t('searchScripts')} aria-label={t('searchScripts')} />
+        )}
         {activeScripts.length > 0 ? (
           <div className="script-list">
             <h2 className="list-title">
               {t('scriptsOnThisPage')}
             </h2>
-            {activeScripts.map(script => (
+            {visibleScripts.length === 0 && <p className="popup-no-results">{t('noSearchResults')}</p>}
+            {visibleScripts.map(script => (
               <div key={script.id} className="script-item-row" style={{ opacity: extensionEnabled ? 1 : 0.6, pointerEvents: extensionEnabled ? 'auto' : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', flex: 1, overflow: 'hidden' }}>
                   <ToggleSwitch checked={!!script.enabled} onChange={(c) => toggleScript(script.id, c)} />
@@ -196,7 +202,7 @@ function App() {
         )
         }
 
-        <div style={{ padding: '0 16px 16px', marginTop: 'auto' }}>
+        <div className="popup-footer">
           <button className="new-script-btn" onClick={() => openDashboard(true)}>
             <Plus size={16} /> {t('createNewScript')}
           </button>

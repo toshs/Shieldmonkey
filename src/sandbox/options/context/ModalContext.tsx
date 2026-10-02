@@ -25,7 +25,7 @@ export const ModalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (onConfirm) onConfirm();
             closeModal();
         };
-        setConfig({ isOpen: true, type, title, message, onConfirm: handleConfirm, confirmLabel, cancelLabel });
+        setConfig({ isOpen: true, type, title, message, onConfirm: onConfirm ? handleConfirm : undefined, confirmLabel, cancelLabel });
     };
 
     const closeModal = () => {
@@ -48,5 +48,4 @@ export const ModalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         </ModalContext.Provider>
     );
 };
-
 

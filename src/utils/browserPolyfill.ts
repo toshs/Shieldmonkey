@@ -56,17 +56,29 @@ export const requestPermission = async (permissions: string[]): Promise<boolean>
  * In Firefox, even if the API exists, we might need to request permission.
  */
 export const isUserScriptsAvailable = async (): Promise<boolean> => {
-    // Check if the namespace exists
     if (!browserAPI.userScripts) return false;
 
-    // Check if we have the permission (if it's optional)
+    const probeId = `shieldmonkey-permission-probe-${crypto.randomUUID()}`;
     try {
         const has = await browserAPI.permissions.contains({ permissions: ['userScripts'] });
-        return has;
+        if (!has) return false;
+        // Vivaldi allows getScripts() even while its separate user-script
+        // switch is off. Registering is the operation needed to run scripts.
+        await browserAPI.userScripts.register([{
+            id: probeId,
+            matches: ['https://shieldmonkey.invalid/*'],
+            js: [{ code: 'void 0;' }]
+        }]);
+        return true;
     } catch (e) {
-        console.warn("Error checking permission:", e);
-        // If it's a mandatory permission, 'contains' returns true.
+        console.warn("User scripts are unavailable:", e);
         return false;
+    } finally {
+        try {
+            await browserAPI.userScripts.unregister({ ids: [probeId] });
+        } catch {
+            // Registration may have failed before the probe existed.
+        }
     }
 };
 

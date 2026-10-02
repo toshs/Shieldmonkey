@@ -473,7 +473,8 @@ const ScriptEditor = () => {
                             className="icon-btn"
                             style={{ marginRight: '8px', padding: '6px' }}
                             onClick={handleBack}
-                            title="Back to Script List"
+                            title={t('editorBackToScripts')}
+                            aria-label={t('editorBackToScripts')}
                         >
                             <ArrowLeft size={18} />
                         </button>
@@ -483,6 +484,7 @@ const ScriptEditor = () => {
                             className="icon-btn mobile-toggle-btn"
                             style={{ marginRight: '12px', padding: '6px' }}
                             onClick={() => setIsMobileInfoOpen(true)}
+                            aria-label={t('scriptInfo')}
                         >
                             <Info size={18} />
                         </button>
@@ -611,7 +613,7 @@ const ScriptEditor = () => {
                                         style={{ background: showTools ? 'var(--bg-secondary)' : undefined }}
                                     >
                                         <Wrench size={16} />
-                                        <span>Tools</span>
+                                        <span>{t('editorTools')}</span>
                                     </button>
                                 </>
                             )}
@@ -647,6 +649,7 @@ const ScriptEditor = () => {
                             theme={cmTheme}
                             extensions={[
                                 javascript({ jsx: true }),
+                                ...(isMobile ? [EditorView.lineWrapping] : []),
                                 javascript().language.data.of({
                                     autocomplete: userScriptMetadataCompletion
                                 }),

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { BadgeInfo, AlertTriangle, CheckCircle, X } from 'lucide-react';
 import './App.css'; // Ensure modal styles are available
+import { useI18n } from '../context/I18nContext';
 
 export type ModalType = 'info' | 'success' | 'warning' | 'error' | 'confirm';
 
@@ -22,9 +23,10 @@ const Modal: React.FC<ModalProps> = ({
     message,
     onClose,
     onConfirm,
-    confirmLabel = 'OK',
-    cancelLabel = 'Cancel'
+    confirmLabel,
+    cancelLabel
 }) => {
+    const { t } = useI18n();
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (isOpen && e.key === 'Escape') onClose();
@@ -64,7 +66,7 @@ const Modal: React.FC<ModalProps> = ({
                 <footer className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                     {(type === 'confirm' || onConfirm) && (
                         <button className="btn-secondary" onClick={onClose} style={{ minWidth: '80px', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
-                            {cancelLabel}
+                            {cancelLabel || t('installBtnCancel')}
                         </button>
                     )}
                     <button
@@ -78,11 +80,11 @@ const Modal: React.FC<ModalProps> = ({
                             justifyContent: 'center'
                         }}
                     >
-                        {confirmLabel}
+                        {confirmLabel || t('modalOk')}
                     </button>
                 </footer>
 
-                <button className="modal-close" onClick={onClose} aria-label="Close" style={{ position: 'absolute', top: '16px', right: '16px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                <button className="modal-close" onClick={onClose} aria-label={t('modalClose')} style={{ position: 'absolute', top: '16px', right: '16px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' }}>
                     <X size={20} />
                 </button>
             </div>
