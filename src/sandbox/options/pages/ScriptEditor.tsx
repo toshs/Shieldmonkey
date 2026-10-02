@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import CodeMirror from '@uiw/react-codemirror';
 
 import { javascript, scopeCompletionSource } from '@codemirror/lang-javascript';
 import { userScriptMetadataCompletion } from '../codemirrorConfig';
 import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode';
-import { ArrowLeft, Save, Trash2, Info, Shield, Globe, Link as LinkIcon, X, Loader, Check, FileJson, Wrench, Undo2, Redo2 } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Info, Shield, Globe, Link as LinkIcon, X, Loader, Check, FileJson, Wrench, Undo2, Redo2, Sparkles, ClipboardCopy, ClipboardPaste } from 'lucide-react';
 import { undo, redo, undoDepth, redoDepth } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import * as prettier from "prettier/standalone";
@@ -17,11 +17,14 @@ import { parseMetadata } from '../../../utils/metadataParser';
 import { isValidHttpUrl, sanitizeToHttpUrl } from '../../../utils/urlValidator';
 import { type Script } from '../types';
 import { useI18n } from '../../context/I18nContext';
+import { copyText } from '../../../utils/clipboard';
+import AiTransferDialog from '../components/AiTransferDialog';
 
 const ScriptEditor = () => {
     const { id } = useParams<{ id: string }>();
     const isNew = !id || id === 'new';
     const navigate = useNavigate();
+    const location = useLocation();
     const { scripts, saveScript, deleteScript } = useApp();
     const { showModal: showGenericModal } = useModal();
     const { t } = useI18n();
@@ -42,6 +45,9 @@ const ScriptEditor = () => {
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
     const [canUndo, setCanUndo] = useState(false);
     const [canRedo, setCanRedo] = useState(false);
+    const [aiDialogMode, setAiDialogMode] = useState<'ask' | 'paste' | null>(location.state?.openAiPaste ? 'paste' : null);
+    const [codeBeforeAiPaste, setCodeBeforeAiPaste] = useState<string | null>(null);
+    const [copyNotice, setCopyNotice] = useState('');
     const toolbarRef = useRef<HTMLDivElement>(null);
 
     // Close tools when clicking outside
@@ -143,6 +149,7 @@ const ScriptEditor = () => {
 
             await saveScript(updatedScript);
             setName(updatedScript.name);
+            setCodeBeforeAiPaste(null);
 
             setIsSaved(true);
             setTimeout(() => {
@@ -189,6 +196,31 @@ const ScriptEditor = () => {
             redo(viewRef.current);
             viewRef.current.focus();
         }
+    };
+
+    const handleCopyCode = async () => {
+        setShowTools(false);
+        if (await copyText(code)) {
+            setCopyNotice(t('aiCodeCopied'));
+            setTimeout(() => setCopyNotice(''), 3000);
+        } else {
+            showGenericModal('info', t('aiCopyCode'), <textarea readOnly value={code} onFocus={event => event.target.select()} style={{ width: '100%', minHeight: '40vh' }} />);
+        }
+    };
+
+    const handleApplyAiCode = (nextCode: string) => {
+        setCodeBeforeAiPaste(code);
+        setCode(nextCode);
+        setName(parseMetadata(nextCode).name || name);
+        setIsSaved(false);
+    };
+
+    const handleRestoreCode = () => {
+        if (codeBeforeAiPaste === null) return;
+        setCode(codeBeforeAiPaste);
+        setName(parseMetadata(codeBeforeAiPaste).name || name);
+        setCodeBeforeAiPaste(null);
+        setShowTools(false);
     };
 
     const handleFormat = useCallback(async () => {
@@ -286,6 +318,7 @@ const ScriptEditor = () => {
 
     return (
         <div className="app-container">
+            {aiDialogMode && <AiTransferDialog code={code} initialMode={aiDialogMode} onApply={handleApplyAiCode} onClose={() => setAiDialogMode(null)} />}
             {/* Mobile Overlay */}
             {isMobileInfoOpen && (
                 <div
@@ -542,6 +575,18 @@ const ScriptEditor = () => {
                                         <FileJson size={16} />
                                         <span>Format</span>
                                     </button>
+                                    <button className="btn-secondary" onClick={handleCopyCode}>
+                                        <ClipboardCopy size={16} />
+                                        <span>{t('aiCopyCode')}</span>
+                                    </button>
+                                    <button className="btn-secondary" onClick={() => setAiDialogMode('paste')}>
+                                        <ClipboardPaste size={16} />
+                                        <span>{t('aiPasteTab')}</span>
+                                    </button>
+                                    {codeBeforeAiPaste !== null && <button className="btn-secondary" onClick={handleRestoreCode}>
+                                        <Undo2 size={16} />
+                                        <span>{t('aiUndoImport')}</span>
+                                    </button>}
                                 </>
                             ) : (
                                 <>
@@ -603,6 +648,15 @@ const ScriptEditor = () => {
                                                 <FileJson size={16} />
                                                 <span>Format</span>
                                             </button>
+                                            <button className="btn-secondary" onClick={handleCopyCode} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
+                                                <ClipboardCopy size={16} /><span>{t('aiCopyCode')}</span>
+                                            </button>
+                                            <button className="btn-secondary" onClick={() => { setAiDialogMode('paste'); setShowTools(false); }} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
+                                                <ClipboardPaste size={16} /><span>{t('aiPasteTab')}</span>
+                                            </button>
+                                            {codeBeforeAiPaste !== null && <button className="btn-secondary" onClick={handleRestoreCode} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
+                                                <Undo2 size={16} /><span>{t('aiUndoImport')}</span>
+                                            </button>}
                                         </div>
                                     )}
 
@@ -617,6 +671,10 @@ const ScriptEditor = () => {
                                     </button>
                                 </>
                             )}
+
+                            <button className="btn-secondary" onClick={() => setAiDialogMode('ask')} title={t('aiDialogTitle')}>
+                                <Sparkles size={16} /><span>{t('aiOpenDialog')}</span>
+                            </button>
 
                             <button
                                 className="btn-primary"
@@ -635,6 +693,7 @@ const ScriptEditor = () => {
                         </div>
                     </div>
                 </header>
+                {copyNotice && <div className="editor-copy-notice" role="status">{copyNotice}</div>}
 
                 <div className="monaco-wrapper" style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
 

@@ -204,6 +204,17 @@ export function initBridge() {
                     }
                     break;
                 }
+                case 'OPEN_AI_SERVICE': {
+                    let url: string | undefined;
+                    switch (typedData.payload) {
+                        case 'chatgpt': url = 'https://chatgpt.com/'; break;
+                        case 'claude': url = 'https://claude.ai/'; break;
+                        case 'gemini': url = 'https://gemini.google.com/app'; break;
+                    }
+                    if (!url) throw new Error('Unknown AI service');
+                    await chrome.tabs.create({ url, active: true });
+                    break;
+                }
                 case 'GET_CURRENT_TAB_URL': {
                     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
                     result = tab?.url;

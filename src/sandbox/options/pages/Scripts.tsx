@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw } from 'lucide-react';
+import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste } from 'lucide-react';
 import { useApp } from '../context/useApp';
 import { useModal } from '../context/useModal';
 import ToggleSwitch from '../components/ToggleSwitch';
@@ -159,6 +159,7 @@ const Scripts = () => {
                         <div className="header-actions">
                             <button className="btn-secondary" onClick={handleImportFile}><FileUp size={16} /> {t('importFile')}</button>
                             {!isMobile() && <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>}
+                            <button className="btn-secondary" onClick={() => navigate('/options/new', { state: { openAiPaste: true } })}><ClipboardPaste size={16} /> {t('aiCreateFromPaste')}</button>
                             <button className="btn-primary" onClick={handleNewScript}><Plus size={16} /> {t('newScript')}</button>
                         </div>
                     </div>

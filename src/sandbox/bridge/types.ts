@@ -20,6 +20,7 @@ export interface BridgeActionMap {
     'SAVE_SCRIPT': { payload: Script; response: void };
     'OPEN_DASHBOARD': { payload?: { path?: string }; response: void };
     'OPEN_URL': { payload: string; response: void };
+    'OPEN_AI_SERVICE': { payload: 'chatgpt' | 'claude' | 'gemini'; response: void };
     'GET_CURRENT_TAB_URL': { payload?: never; response: string | undefined };
     'GET_I18N_MESSAGE': { payload: { key: string, substitutions?: string | string[] }; response: string };
     'RELOAD_SCRIPTS': { payload?: never; response: void };
