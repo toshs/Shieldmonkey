@@ -23,24 +23,16 @@ test('Popup page opens successfully', async () => {
     const title = await page.title();
     expect(title).toBe('Shieldmonkey');
 
-    // Wait for iframe
-    await page.waitForSelector('iframe');
-    const frame = page.frameLocator('iframe');
-
-    // Check for AppContent div or similar that indicates React App loaded
-    // .app-container or similar? Let's assume #root > div
-    await frame.locator('#root').waitFor();
-    const appElement = frame.locator('#root');
-    expect(await appElement.isVisible()).toBe(true);
+    const popup = page.locator('.popup-container');
+    await popup.waitFor();
+    expect(await popup.isVisible()).toBe(true);
 });
 
 test('Create new script opens options page with editor', async () => {
     await page.goto(getExtensionUrl(extensionId, '/src/popup/index.html'));
 
-    const frame = page.frameLocator('iframe');
-
     // Click create new script button
-    const btn = frame.locator('.new-script-btn');
+    const btn = page.locator('.new-script-btn');
 
     // Expect a new tab/page to open
     const pagePromise = browserContext.waitForEvent('page', page => page.url().includes(extensionId));

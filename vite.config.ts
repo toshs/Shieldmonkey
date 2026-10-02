@@ -30,6 +30,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: targetBrowser === 'firefox' ? 'dist-firefox' : targetBrowser === 'vivaldi' ? 'dist-vivaldi' : 'dist',
+      modulePreload: { polyfill: targetBrowser !== 'vivaldi' },
       minify: mode === 'production' && process.env.DISABLE_MINIFY !== 'true',
       sourcemap: process.env.DISABLE_SOURCEMAP === 'true' ? false : true,
     }

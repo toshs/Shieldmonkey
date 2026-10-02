@@ -7,11 +7,18 @@
   <link rel="icon" type="image/png" href="/icons/icon48.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Shieldmonkey</title>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #202020; }
+    body { width: 420px; height: 600px; }
+    @media (pointer: coarse) { body { width: 360px; height: 400px; } }
+    #popup-placeholder { display: flex; align-items: center; gap: 12px; padding: 16px; color: #22c55e; font: 900 18px system-ui, sans-serif; }
+    #popup-placeholder img { width: 28px; height: 28px; }
+  </style>
 </head>
 
 <body>
-  <div id="root"></div>
-  <script type="module" src="./main.tsx"></script>
+  <div id="root"><div id="popup-placeholder"><img src="/icons/icon48.png" alt="" />Shieldmonkey</div></div>
+  <script type="module" src="./main.ts"></script>
 </body>
 
 </html>

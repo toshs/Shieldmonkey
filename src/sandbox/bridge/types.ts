@@ -1,12 +1,5 @@
 import type { Script, Theme } from '../options/types';
 
-export interface PopupScript {
-    id: string;
-    name: string;
-    enabled?: boolean;
-    hasUpdateUrl: boolean;
-}
-
 export interface BridgeActionMap {
     'GET_SETTINGS': {
         payload?: never;
@@ -20,12 +13,6 @@ export interface BridgeActionMap {
         }
     };
     'GET_LOCALE': { payload?: never; response: string | undefined };
-    'GET_POPUP_DATA': { payload?: never; response: {
-        theme?: Theme;
-        extensionEnabled?: boolean;
-        currentUrl?: string;
-        scripts: PopupScript[];
-    } };
     'UPDATE_THEME': { payload: Theme; response: void };
     'UPDATE_LOCALE': { payload: string; response: void };
     'TOGGLE_GLOBAL': { payload: boolean; response: void };

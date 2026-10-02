@@ -9,7 +9,7 @@
     "dev:firefox": "TARGET_BROWSER=firefox NODE_OPTIONS=\"--max-old-space-size=4096\" vite build --watch --mode development",
     "build": "tsc -b && NODE_OPTIONS=\"--max-old-space-size=4096\" vite build && rm -rf dist/.vite",
     "build:firefox": "tsc -b && TARGET_BROWSER=firefox NODE_OPTIONS=\"--max-old-space-size=4096\" vite build && rm -rf dist-firefox/.vite",
-    "build:vivaldi": "tsc -b && TARGET_BROWSER=vivaldi NODE_OPTIONS=\"--max-old-space-size=4096\" vite build && rm -rf dist-vivaldi/.vite dist-vivaldi/_locales",
+    "build:vivaldi": "tsc -b && TARGET_BROWSER=vivaldi NODE_OPTIONS=\"--max-old-space-size=4096\" vite build && node scripts/prepare-vivaldi.mjs && rm -rf dist-vivaldi/.vite dist-vivaldi/_locales",
     "lint": "eslint .",
     "test": "pnpm run test:unit && pnpm run test:e2e",
     "test:e2e": "vitest run --config vitest.config.e2e.ts",

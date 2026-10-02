@@ -272,5 +272,6 @@
   "copyCode": { "message": "Copy code" },
   "codeCopied": { "message": "Code copied" },
   "restorePastedCode": { "message": "Restore pre-paste code" },
-  "createFromPaste": { "message": "Create from paste" }
+  "createFromPaste": { "message": "Create from paste" },
+  "popupLoadError": { "message": "Could not load scripts. Reopen the popup to try again." }
 }
