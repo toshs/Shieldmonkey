@@ -276,7 +276,7 @@
   "aiPasteManually": { "message": "クリップボードを読めませんでした。入力欄を長押しして貼り付けてください。" },
   "aiAnswerLabel": { "message": "AIの回答またはユーザースクリプト" },
   "aiAnswerPlaceholder": { "message": "AIの回答か完全なユーザースクリプトを貼り付け" },
-  "aiReadyToApply": { "message": "反映できます: $1" },
+  "aiReadyToApply": { "message": "反映できます: $1", "placeholders": { "1": { "content": "$1" } } },
   "aiUnnamedScript": { "message": "名前のないスクリプト" },
   "aiMissingHeader": { "message": "==UserScript== のメタデータを含む完全なコードが必要です。" },
   "aiReplaceHint": { "message": "反映するとエディタ内のコードを置き換えます。自動保存はしません。確認してから保存してください。" },

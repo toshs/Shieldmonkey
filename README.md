@@ -86,6 +86,17 @@ We prioritize supply chain security by leveraging `pnpm` configuration and stric
 4. Load the extension
    Open `chrome://extensions` in Chrome, enable Developer Mode, and load the generated `dist` directory.
 
+### Vivaldi on Android
+
+Use the dedicated build when loading an unpacked extension through Vivaldi's Android folder picker. The standard build's `_locales` directory is not loaded correctly through that picker. The dedicated build uses a literal manifest name and description and omits `_locales`; translations used inside the UI remain bundled in JavaScript.
+
+```bash
+pnpm run build:vivaldi
+adb push dist-vivaldi /sdcard/Download/ShieldMonkeyVivaldi
+```
+
+In `vivaldi://extensions`, enable Developer mode and choose the `Download/ShieldMonkeyVivaldi` folder with **Load unpacked**. After loading, open the extension's **Details** and enable **Allow user scripts**.
+
 ## testing
 
 You can run E2E tests to verify Shieldmonkey's functionality.

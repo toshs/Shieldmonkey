@@ -86,6 +86,17 @@ pnpmの設定 (`pnpm-workspace.yaml`) と厳格なバージョン管理により
 4. 拡張機能の読み込み
    Chromeの `chrome://extensions` を開き、デベロッパーモードを有効にして、生成された `dist` ディレクトリを読み込んでください。
 
+### Android版Vivaldi
+
+Android版Vivaldiでフォルダーから読み込む場合は、専用ビルドを使います。Vivaldiのフォルダー選択経由では `_locales` を含む通常ビルドを読み込めないため、専用ビルドはマニフェストの名前と説明を直接指定し、翻訳フォルダーを除きます。画面内の日本語・英語の翻訳はビルド済みJavaScriptに含まれます。
+
+```bash
+pnpm run build:vivaldi
+adb push dist-vivaldi /sdcard/Download/ShieldMonkeyVivaldi
+```
+
+Vivaldiの `vivaldi://extensions` でデベロッパーモードを有効にし、「非パッケージ拡張機能を読み込む」で `Download/ShieldMonkeyVivaldi` フォルダーを選択します。読み込み後、拡張機能の「詳細」で「ユーザー スクリプトを許可する」を有効にしてください。
+
 ## テスト
 
 E2Eテストを実行してShieldmonkeyの機能を検証できます。

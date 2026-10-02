@@ -4,7 +4,17 @@ import { crx } from '@crxjs/vite-plugin'
 import manifestChrome from './src/manifest.json'
 import manifestFirefox from './src/manifest.firefox.json'
 
-const manifest = process.env.TARGET_BROWSER === 'firefox' ? manifestFirefox : manifestChrome;
+const targetBrowser = process.env.TARGET_BROWSER;
+const manifest = targetBrowser === 'firefox'
+  ? manifestFirefox
+  : targetBrowser === 'vivaldi'
+    ? {
+        ...manifestChrome,
+        name: 'ShieldMonkey',
+        description: 'A Security-First, Open-Source Userscript Manager.',
+        default_locale: undefined,
+      }
+    : manifestChrome;
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -19,7 +29,7 @@ export default defineConfig(({ mode }) => {
       '__DEV__': mode === 'development'
     },
     build: {
-      outDir: process.env.TARGET_BROWSER === 'firefox' ? 'dist-firefox' : 'dist',
+      outDir: targetBrowser === 'firefox' ? 'dist-firefox' : targetBrowser === 'vivaldi' ? 'dist-vivaldi' : 'dist',
       minify: process.env.DISABLE_MINIFY === 'false' ? true : false,
       sourcemap: process.env.DISABLE_SOURCEMAP === 'true' ? false : true,
     }

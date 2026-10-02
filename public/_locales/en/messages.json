@@ -276,7 +276,7 @@
   "aiPasteManually": { "message": "Clipboard access was blocked. Long press the field and choose Paste." },
   "aiAnswerLabel": { "message": "AI answer or userscript" },
   "aiAnswerPlaceholder": { "message": "Paste the complete AI answer or userscript here" },
-  "aiReadyToApply": { "message": "Ready to apply: $1" },
+  "aiReadyToApply": { "message": "Ready to apply: $1", "placeholders": { "1": { "content": "$1" } } },
   "aiUnnamedScript": { "message": "Unnamed script" },
   "aiMissingHeader": { "message": "A complete userscript with ==UserScript== metadata is required." },
   "aiReplaceHint": { "message": "Applying replaces the editor text without saving it. Review it, then tap Save." },
