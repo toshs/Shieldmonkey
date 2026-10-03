@@ -1,6 +1,7 @@
 import { type BrowserContext, type Page, chromium } from 'playwright';
 import { readFileSync, rmSync, existsSync } from 'fs';
 import path from 'path';
+import { createHash } from 'node:crypto';
 
 // Constants
 export const EXTENSION_PATH = path.join(process.cwd(), 'dist');
@@ -253,6 +254,92 @@ export function createMockFileSystemHandle(initialData?: { name: string; content
     `;
 }
 
+export function createMockWorkspaceHandle(initialData?: { name: string; content: string }[]) {
+    const inputs = initialData ?? [{
+        name: 'Restored Script.user.js',
+        content: '// ==UserScript==\n// @name Restored Script\n// @namespace mock\n// @match https://shieldmonkey.github.io/*\n// ==/UserScript==\nconsole.log(1);',
+    }];
+    const scripts = inputs.map((input, index) => {
+        const name = input.content.match(/^\s*\/\/\s*@name\s+(.+)$/m)?.[1]?.trim() || input.name.replace(/\.user\.js$/, '');
+        const namespace = input.content.match(/^\s*\/\/\s*@namespace\s+(.+)$/m)?.[1]?.trim() || '';
+        return {
+            id: `restored-script-${index}`, name, namespace, code: input.content,
+            enabled: true, grantedPermissions: [], folderPath: '', filePath: input.name,
+        };
+    });
+    const state = {
+        format: 1, workspaceId: 'mock-workspace', folders: [],
+        entries: scripts.map(script => ({
+            id: script.id, path: script.filePath,
+            hash: createHash('sha256').update(script.code).digest('hex'),
+            identity: `${script.namespace}\u0000${script.name}`,
+            metadata: Object.fromEntries(Object.entries(script).filter(([key]) => key !== 'code')),
+        })),
+    };
+    const snapshot = { format: 1, timestamp: new Date().toISOString(), reason: 'Initial workspace', folders: [], scripts };
+    const files = {
+        'state.json': JSON.stringify(state),
+        'scripts': Object.fromEntries(inputs.map(input => [input.name, input.content])),
+        'history': { '2026-01-01T00-00-00-000Z-initial.json': JSON.stringify(snapshot) },
+    };
+    return `
+    (() => {
+        const initial = ${JSON.stringify(files)};
+        function makeFile(name, content = '') {
+            return {
+                kind: 'file', name, content,
+                getFile: async function () { return new Blob([this.content]); },
+                createWritable: async function () {
+                    let next = '';
+                    return {
+                        write: async value => { next = typeof value === 'string' ? value : String(value); },
+                        close: async () => { this.content = next; },
+                    };
+                }
+            };
+        }
+        function makeDirectory(name, contents = {}) {
+            const entries = new Map(Object.entries(contents).map(([key, value]) =>
+                [key, typeof value === 'string' ? makeFile(key, value) : makeDirectory(key, value)]));
+            return {
+                kind: 'directory', name,
+                getFileHandle: async (key, options) => {
+                    const item = entries.get(key);
+                    if (item?.kind === 'file') return item;
+                    if (item) throw new DOMException('Wrong kind', 'TypeMismatchError');
+                    if (!options?.create) throw new DOMException('Missing', 'NotFoundError');
+                    const file = makeFile(key);
+                    entries.set(key, file);
+                    return file;
+                },
+                getDirectoryHandle: async (key, options) => {
+                    const item = entries.get(key);
+                    if (item?.kind === 'directory') return item;
+                    if (item) throw new DOMException('Wrong kind', 'TypeMismatchError');
+                    if (!options?.create) throw new DOMException('Missing', 'NotFoundError');
+                    const dir = makeDirectory(key);
+                    entries.set(key, dir);
+                    return dir;
+                },
+                removeEntry: async key => {
+                    const item = entries.get(key);
+                    if (!item) throw new DOMException('Missing', 'NotFoundError');
+                    if (item.kind === 'directory') {
+                        for await (const _child of item.entries()) throw new DOMException('Not empty', 'InvalidModificationError');
+                    }
+                    entries.delete(key);
+                },
+                entries: async function* () { yield* entries.entries(); },
+                queryPermission: async () => 'granted',
+                requestPermission: async () => 'granted',
+            };
+        }
+        const root = makeDirectory('mock-backup-dir', initial);
+        window.__mockBackupDirectoryHandle = root;
+        window.showDirectoryPicker = async () => root;
+    })();`;
+}
+
 // Helper: Inject script directly into storage and reload
 export async function injectScriptToStorage(page: Page, scriptPath: string) {
     const filename = path.basename(scriptPath);
@@ -316,7 +403,7 @@ export async function installScriptFromPath(page: Page, extensionId: string, scr
     const content = readFileSync(scriptPath, 'utf-8');
 
     // 1. Setup mock handle with the script content
-    await page.addInitScript(createMockFileSystemHandle([{ name: filename, content }]));
+    await page.addInitScript(createMockWorkspaceHandle([{ name: filename, content }]));
 
     // 2. Navigate to settings to trigger restore
     const settingsUrl = `chrome-extension://${extensionId}/src/options/index.html#/settings`;
@@ -331,13 +418,13 @@ export async function installScriptFromPath(page: Page, extensionId: string, scr
 
     // 3. Trigger restore
     const frame = page.frameLocator('iframe');
-    const dropdownBtn = frame.getByRole('button', { name: /Select$/i });
-    await dropdownBtn.waitFor({ state: 'visible' });
-    await dropdownBtn.click();
-
-    const selectBtn = frame.getByRole('button', { name: /Select Directory & Restore/i });
+    const selectBtn = frame.getByRole('button', { name: /Select$/i });
     await selectBtn.waitFor({ state: 'visible' });
     await selectBtn.click();
+
+    const restoreBtn = frame.getByRole('button', { name: /Restore from backup folder/i });
+    await restoreBtn.waitFor({ state: 'visible' });
+    await restoreBtn.click();
 
     // 4. Confirm modal
     const modal = frame.locator('.modal-content');

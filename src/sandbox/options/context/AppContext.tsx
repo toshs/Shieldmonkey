@@ -6,6 +6,7 @@ import { bridge } from '../../bridge/client';
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [scripts, setScripts] = useState<Script[]>([]);
+    const [folders, setFolders] = useState<string[]>([]);
     const [theme, setTheme] = useState<Theme>('dark');
     const [extensionEnabled, setExtensionEnabled] = useState(true);
 
@@ -18,6 +19,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             if (data.extensionEnabled !== undefined) setExtensionEnabled(!!data.extensionEnabled);
 
             const storedScripts = data.scripts as Script[] | undefined;
+            setFolders(Array.isArray(data.scriptFolders) ? data.scriptFolders : []);
             if (Array.isArray(storedScripts)) {
                 const initializedScripts = storedScripts.map(s => ({
                     ...s,
@@ -45,6 +47,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                             };
                         });
                     });
+                }
+                if (changes.scriptFolders && Array.isArray(changes.scriptFolders.newValue)) {
+                    setFolders(changes.scriptFolders.newValue as string[]);
                 }
                 if (changes.theme) {
                     setTheme(changes.theme.newValue as Theme);
@@ -93,6 +98,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const reloadScripts = async () => {
         const data = await bridge.call('GET_SETTINGS');
+        setFolders(Array.isArray(data.scriptFolders) ? data.scriptFolders : []);
         if (Array.isArray(data.scripts)) {
             setScripts(data.scripts.map((s: Script) => ({ ...s, lastSavedCode: s.code, enabled: s.enabled !== false })));
         }
@@ -112,9 +118,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         await bridge.call('TOGGLE_SCRIPT', { scriptId: script.id, enabled });
     };
 
+    const updateLibrary = async (nextScripts: Script[], nextFolders: string[]) => {
+        await bridge.call('UPDATE_LIBRARY', { scripts: nextScripts, folders: nextFolders });
+        await bridge.call('RELOAD_SCRIPTS');
+        await reloadScripts();
+    };
+
     return (
         <AppContext.Provider value={{
             scripts,
+            folders,
             theme,
             extensionEnabled,
             setTheme: updateTheme,
@@ -123,11 +136,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             reloadScripts,
             saveScript,
             deleteScript,
-            toggleScript
+            toggleScript,
+            updateLibrary
         }}>
             {children}
         </AppContext.Provider>
     );
 };
-
-

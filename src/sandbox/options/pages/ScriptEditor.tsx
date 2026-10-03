@@ -144,7 +144,9 @@ const ScriptEditor = () => {
                 enabled: isNew ? true : scriptFromContext!.enabled,
                 grantedPermissions,
                 installDate: isNew ? Date.now() : scriptFromContext!.installDate,
-                updateDate: Date.now()
+                updateDate: Date.now(),
+                folderPath: isNew ? (location.state?.folderPath || '') : scriptFromContext!.folderPath,
+                filePath: isNew ? undefined : scriptFromContext!.filePath,
             };
 
             await saveScript(updatedScript);
@@ -168,7 +170,7 @@ const ScriptEditor = () => {
         } finally {
             setIsSaving(false);
         }
-    }, [code, scriptFromContext, saveScript, showGenericModal, t, isNew, newScriptId, navigate]);
+    }, [code, scriptFromContext, saveScript, showGenericModal, t, isNew, newScriptId, navigate, location.state]);
 
     const handleDelete = () => {
         if (isNew) {

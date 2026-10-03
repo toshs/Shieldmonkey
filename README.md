@@ -97,7 +97,9 @@ adb push dist-vivaldi /sdcard/Download/ShieldMonkeyVivaldi
 
 In `vivaldi://extensions`, enable Developer mode and choose the `Download/ShieldMonkeyVivaldi` folder with **Load unpacked**. After loading, open the extension's **Details** and enable **Allow user scripts**.
 
-In Settings, select an Android folder under **Backup Directory** to save the same `scripts/*.user.js` and `shieldmonkey_dump.json` files as the desktop version. Automatic backup updates that folder when scripts change. If folder access expires after Vivaldi restarts, use **Allow folder access** in Settings. Automatic backups download JSON files until access is restored. Restore is a manual action in Settings.
+In Settings, select an empty folder to create an editable workspace: `scripts/` contains nested `.user.js` files, `state.json` holds script IDs and settings, and `history/` contains full snapshots. An existing workspace with `state.json` can be selected and restored in Settings. A folder containing only the older `shieldmonkey_dump.json` format cannot be selected.
+
+App edits and folder moves write through to the workspace regardless of the automatic backup toggle. Changes made in a file manager are read when the Scripts page opens or **Refresh files** is pressed. If both copies changed, choose a version after reviewing the diff; external file deletion also requires confirmation. History has no retention limit and can restore the full library or one script. If Vivaldi loses folder access after a restart, grant it again in Settings. Single JSON file export and import remain available.
 
 ## testing
 

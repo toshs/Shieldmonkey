@@ -10,7 +10,9 @@ export interface Script {
     namespace?: string;
     installDate?: number;
     updateDate?: number;
-
+    folderPath?: string;
+    filePath?: string;
+    token?: string;
 }
 
 export type Theme = 'light' | 'dark' | 'system';

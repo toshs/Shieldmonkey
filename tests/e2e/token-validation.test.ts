@@ -43,7 +43,7 @@ test('Token Validation: Script should lose access if token changes in background
     await page.evaluate(async () => {
         const data = await chrome.storage.local.get('scripts');
         const scripts = (data.scripts || []) as { name?: string; token?: string }[];
-        const script = scripts.find((s) => s.name && s.name.includes("token_validation"));
+        const script = scripts.find((s) => s.name === 'Token Validation Test');
         if (script) {
             script.token = "NEW_TOKEN_" + Date.now();
             await chrome.storage.local.set({ scripts });

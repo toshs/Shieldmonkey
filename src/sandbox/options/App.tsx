@@ -13,6 +13,7 @@ import Settings from './pages/Settings';
 import Help from './pages/Help';
 import PermissionHelp from './pages/PermissionHelp';
 import Install from './pages/Install';
+import History from './pages/History';
 
 // Helper component to sync hash with parent
 function HashSync() {
@@ -57,6 +58,7 @@ function App() {
             <Route path="scripts" element={<Scripts />} />
 
             <Route path="settings" element={<Settings />} />
+            <Route path="history" element={<History />} />
             <Route path="help" element={<Help />} />
           </Route>
           <Route path="scripts/:id" element={<ScriptEditor />} />

@@ -9,6 +9,8 @@ export interface Script {
 
     installDate?: number;
     updateDate?: number;
+    folderPath?: string;
+    filePath?: string;
     token?: string;
     [key: string]: unknown;
 }

@@ -89,11 +89,18 @@ export async function handleToggleGlobal(enabled: boolean) {
 export async function handleSaveScript(script: Script) {
     if (!await isUserScriptsAvailable()) throw new Error("API unavailable");
 
-    // 1. Update in Storage
     const data = await chrome.storage.local.get('scripts');
     const scripts: Script[] = Array.isArray(data.scripts) ? data.scripts : [];
     const index = scripts.findIndex((s) => s.id === script.id);
     const now = Date.now();
+
+    const metadata = parseMetadata(script.code);
+    if (metadata.name) script.name = metadata.name;
+    script.namespace = metadata.namespace || '';
+    const duplicate = scripts.find(s => s.id !== script.id &&
+        parseMetadata(s.code).name === metadata.name &&
+        (parseMetadata(s.code).namespace || '') === (metadata.namespace || ''));
+    if (duplicate) throw new Error(`A script with @name "${metadata.name}" and the same @namespace already exists.`);
 
     // Generate new token on save/update to invalidate old instances
     script.token = crypto.randomUUID();
@@ -113,6 +120,9 @@ export async function handleSaveScript(script: Script) {
 
         if (!script.referrerUrl && existing.referrerUrl) script.referrerUrl = existing.referrerUrl;
 
+        if (script.folderPath === undefined) script.folderPath = existing.folderPath;
+        if (script.filePath === undefined) script.filePath = existing.filePath;
+
         scripts[index] = script;
     } else {
         // New script
@@ -123,39 +133,14 @@ export async function handleSaveScript(script: Script) {
         scripts.push(script);
     }
 
-    await chrome.storage.local.set({ scripts });
-
-    // 2. Parse metadata
-    const metadata = parseMetadata(script.code);
+    // Parse before the first storage write so duplicate metadata never leaves a partial save.
     const matches = [...metadata.match, ...metadata.include];
     const excludes = metadata.exclude;
     const runAt = metadata['run-at'] || 'document_end';
 
-    if (metadata.name) {
-        script.name = metadata.name;
-    }
-    if (metadata.namespace) {
-        script.namespace = metadata.namespace;
-    }
-
     if (metadata.grant && Array.isArray(metadata.grant)) {
         script.grantedPermissions = metadata.grant;
     }
-
-    // Enforce uniqueness of name + namespace pair
-    let uniqueName = script.name;
-    let counter = 1;
-    while (true) {
-        const conflict = scripts.find((s) =>
-            s.id !== script.id &&
-            s.name === uniqueName &&
-            (s.namespace || '') === (script.namespace || '')
-        );
-        if (!conflict) break;
-        uniqueName = `${script.name} (${counter})`;
-        counter++;
-    }
-    script.name = uniqueName;
 
     const newIndex = index !== -1 ? index : scripts.length - 1;
     scripts[newIndex] = script;

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste } from 'lucide-react';
+import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste, Folder, FolderPlus, History, Pencil } from 'lucide-react';
 import { useApp } from '../context/useApp';
 import { useModal } from '../context/useModal';
 import ToggleSwitch from '../components/ToggleSwitch';
@@ -10,9 +10,55 @@ import { useI18n } from '../../context/I18nContext';
 import { bridge } from '../../bridge/client';
 import { isMobile } from '../../../utils/browserPolyfill';
 import type { Script } from '../types';
+import type { WorkspaceConflict, WorkspaceResolution } from '../../../utils/workspaceManager';
+import { normalizeFolder } from '../../../utils/workspaceManager';
+
+function DiffView({ appCode, fileCode }: { appCode: string; fileCode: string }) {
+    const { t } = useI18n();
+    const [appChanged, fileChanged] = useMemo(() => {
+        const a = appCode.split('\n');
+        const b = fileCode.split('\n');
+        const app = new Set<number>();
+        const file = new Set<number>();
+        if (a.length * b.length > 250000) {
+            for (let i = 0; i < Math.max(a.length, b.length); i++) {
+                if (a[i] !== b[i]) {
+                    if (i < a.length) app.add(i);
+                    if (i < b.length) file.add(i);
+                }
+            }
+            return [app, file];
+        }
+        const table = Array.from({ length: a.length + 1 }, () => new Uint16Array(b.length + 1));
+        for (let i = a.length - 1; i >= 0; i--) {
+            for (let j = b.length - 1; j >= 0; j--) {
+                table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+            }
+        }
+        let i = 0;
+        let j = 0;
+        while (i < a.length || j < b.length) {
+            if (i < a.length && j < b.length && a[i] === b[j]) { i++; j++; }
+            else if (j === b.length || (i < a.length && table[i + 1][j] >= table[i][j + 1])) app.add(i++);
+            else file.add(j++);
+        }
+        return [app, file];
+    }, [appCode, fileCode]);
+    const render = (code: string, changed: Set<number>) => code.split('\n').map((line, index) => (
+        <span key={index} style={{ display: 'block', background: changed.has(index) ? 'rgba(245,158,11,.22)' : 'transparent' }}>
+            {String(index + 1).padStart(4)}  {line || ' '}
+        </span>
+    ));
+    return (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 8 }}>
+            <div><strong>{t('workspaceAppVersion')}</strong><pre style={{ overflow: 'auto', maxHeight: 240, fontSize: 11 }}>{render(appCode, appChanged)}</pre></div>
+            <div><strong>{t('workspaceFileVersion')}</strong><pre style={{ overflow: 'auto', maxHeight: 240, fontSize: 11 }}>{render(fileCode, fileChanged)}</pre></div>
+        </div>
+    );
+}
 
 const Scripts = () => {
-    const { scripts, toggleScript, deleteScript, setScripts, saveScript } = useApp();
+    const { scripts, folders, toggleScript, deleteScript, setScripts, saveScript, reloadScripts, updateLibrary } = useApp();
     const { t } = useI18n();
     const { showModal } = useModal();
     const navigate = useNavigate();
@@ -20,9 +66,103 @@ const Scripts = () => {
     const [query, setQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
     const [sortBy, setSortBy] = useState<'name' | 'recent'>('name');
+    const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+    const [folderDraft, setFolderDraft] = useState('');
+    const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+    const [conflicts, setConflicts] = useState<WorkspaceConflict[]>([]);
+    const [workspaceNotice, setWorkspaceNotice] = useState('');
+    const [scanning, setScanning] = useState(false);
+    const [workspaceLinked, setWorkspaceLinked] = useState(false);
+    const didInitialScan = useRef(false);
+    const scanWorkspace = useCallback(async () => {
+        setScanning(true);
+        try {
+            const status = await bridge.call('GET_BACKUP_DIR_STATUS');
+            setWorkspaceLinked(!!status.name);
+            if (!status.name) {
+                setWorkspaceNotice('');
+                setConflicts([]);
+                return;
+            }
+            if (status.needsRestore) {
+                setWorkspaceNotice(t('workspaceNeedsRestore'));
+                return;
+            }
+            if (status.permission !== 'granted') {
+                setWorkspaceNotice(t('workspaceNeedsAccess'));
+                return;
+            }
+            const result = await bridge.call('SCAN_WORKSPACE');
+            setConflicts(result.conflicts);
+            setWorkspaceNotice(result.conflicts.length ? t('workspaceConflictsCount', String(result.conflicts.length)) : '');
+            if (result.changed) await reloadScripts();
+        } catch (error) {
+            setWorkspaceNotice((error as Error).message);
+        } finally {
+            setScanning(false);
+        }
+    }, [reloadScripts, t]);
+    useEffect(() => {
+        if (didInitialScan.current) return;
+        didInitialScan.current = true;
+        void scanWorkspace();
+    }, [scanWorkspace]);
+
+    const createFolder = async () => {
+        try {
+            const name = folderDraft.trim();
+            if (!name || name.includes('/')) throw new Error(t('workspaceInvalidFolderName'));
+            const folder = normalizeFolder(`${selectedFolder ? selectedFolder + '/' : ''}${name}`);
+            if (folders.includes(folder)) throw new Error(t('workspaceFolderExists'));
+            await updateLibrary(scripts, [...folders, folder].sort());
+            setFolderDraft('');
+        } catch (error) {
+            showModal('error', t('workspaceCreateFolderFailed'), (error as Error).message);
+        }
+    };
+    const renameFolder = async (oldPath: string) => {
+        try {
+            const name = folderDraft.trim();
+            if (!name || name.includes('/')) throw new Error(t('workspaceInvalidFolderName'));
+            const parent = oldPath.split('/').slice(0, -1).join('/');
+            const newPath = normalizeFolder(`${parent ? parent + '/' : ''}${name}`);
+            if (folders.some(folder => folder === newPath || folder.startsWith(newPath + '/'))) throw new Error(t('workspaceFolderExists'));
+            const replace = (path: string) => path === oldPath || path.startsWith(oldPath + '/') ? newPath + path.slice(oldPath.length) : path;
+            await updateLibrary(
+                scripts.map(script => ({ ...script, folderPath: replace(script.folderPath || '') })),
+                folders.map(replace).sort(),
+            );
+            if (selectedFolder?.startsWith(oldPath)) setSelectedFolder(replace(selectedFolder));
+            setRenamingFolder(null);
+            setFolderDraft('');
+        } catch (error) {
+            showModal('error', t('workspaceRenameFolderFailed'), (error as Error).message);
+        }
+    };
+    const moveScript = async (script: Script, folderPath: string) => {
+        try {
+            await updateLibrary(scripts.map(item => item.id === script.id ? { ...item, folderPath } : item), folders);
+        } catch (error) {
+            showModal('error', t('workspaceMoveScriptFailed'), (error as Error).message);
+        }
+    };
+    const resolveConflict = async (conflict: WorkspaceConflict, resolution: WorkspaceResolution) => {
+        try {
+            const result = await bridge.call('RESOLVE_WORKSPACE_CONFLICT', { conflict, resolution });
+            setConflicts(result.conflicts);
+            setWorkspaceNotice(result.conflicts.length ? t('workspaceConflictsCount', String(result.conflicts.length)) : '');
+            await reloadScripts();
+        } catch (error) {
+            showModal('error', t('workspaceResolveFailed'), (error as Error).message);
+        }
+    };
     const visibleScripts = useMemo(() => {
         const term = query.trim().toLocaleLowerCase();
         return scripts.filter((script: Script) => {
+            if (selectedFolder !== null) {
+                const path = script.folderPath || '';
+                if (selectedFolder === '' ? path !== '' : path !== selectedFolder && !path.startsWith(selectedFolder + '/')) return false;
+            }
             if (statusFilter === 'enabled' && !script.enabled) return false;
             if (statusFilter === 'disabled' && script.enabled) return false;
             if (!term) return true;
@@ -32,10 +172,10 @@ const Scripts = () => {
         }).sort((a: Script, b: Script) => sortBy === 'recent'
             ? (b.updateDate || b.installDate || 0) - (a.updateDate || a.installDate || 0)
             : a.name.localeCompare(b.name));
-    }, [scripts, query, statusFilter, sortBy]);
+    }, [scripts, selectedFolder, query, statusFilter, sortBy]);
 
     const handleNewScript = async () => {
-        navigate('/options/new');
+        navigate('/options/new', { state: { folderPath: selectedFolder || '' } });
     };
 
     const handleBulkEnable = async () => {
@@ -159,11 +299,74 @@ const Scripts = () => {
                         <div className="header-actions">
                             <button className="btn-secondary" onClick={handleImportFile}><FileUp size={16} /> {t('importFile')}</button>
                             {!isMobile() && <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>}
-                            <button className="btn-secondary" onClick={() => navigate('/options/new', { state: { openPaste: true } })}><ClipboardPaste size={16} /> {t('createFromPaste')}</button>
+                            <button className="btn-secondary" onClick={() => navigate('/options/new', { state: { openPaste: true, folderPath: selectedFolder || '' } })}><ClipboardPaste size={16} /> {t('createFromPaste')}</button>
                             <button className="btn-primary" onClick={handleNewScript}><Plus size={16} /> {t('newScript')}</button>
                         </div>
                     </div>
                 </div>
+
+                <div style={{ padding: '0 24px 12px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                    <button className="btn-secondary" onClick={() => void scanWorkspace()} disabled={scanning || !workspaceLinked}>
+                        <RefreshCw size={15} /> {scanning ? t('workspaceScanning') : t('workspaceRefresh')}
+                    </button>
+                    <button className="btn-secondary" onClick={() => navigate('/options/history')} disabled={!workspaceLinked}>
+                        <History size={15} /> {t('workspaceHistory')}
+                    </button>
+                    {workspaceNotice && <span role="status" style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{workspaceNotice}</span>}
+                </div>
+
+                {conflicts.length > 0 && (
+                    <section aria-label={t('workspaceConflictSection')} style={{ padding: '8px 24px', maxHeight: '38vh', overflow: 'auto', flexShrink: 0, borderBlock: '1px solid var(--border-color)' }}>
+                        <h3 style={{ margin: '4px 0 8px' }}>{t('workspaceConflictSection')}</h3>
+                        {conflicts.map((conflict, index) => (
+                            <article key={`${conflict.kind}-${conflict.path}-${index}`} style={{ padding: 12, marginBottom: 8, border: '1px solid var(--border-color)', borderRadius: 8 }}>
+                                <strong>{conflict.path || conflict.scriptId}</strong>
+                                <p style={{ margin: '6px 0' }}>{conflict.message}</p>
+                                {conflict.appCode && conflict.fileCode && <DiffView appCode={conflict.appCode} fileCode={conflict.fileCode} />}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                    {conflict.scriptId && !['duplicate-identity', 'invalid-file', 'ambiguous-move'].includes(conflict.kind) && (
+                                        <>
+                                            <button className="btn-secondary" onClick={() => void resolveConflict(conflict, 'app')}>
+                                                {t(conflict.kind === 'missing-file' ? 'workspaceRecreateFile' : conflict.kind === 'changed-before-delete' ? 'workspaceDeleteFile' : 'workspaceChooseApp')}
+                                            </button>
+                                            <button className="btn-secondary" onClick={() => void resolveConflict(conflict, 'file')}>
+                                                {t(conflict.kind === 'missing-file' ? 'workspaceDeleteFromApp' : conflict.kind === 'changed-before-delete' ? 'workspaceRestoreFromFile' : conflict.kind === 'possible-move' ? 'workspaceLinkFile' : 'workspaceChooseFile')}
+                                            </button>
+                                        </>
+                                    )}
+                                    {(!conflict.scriptId || ['duplicate-identity', 'invalid-file', 'ambiguous-move'].includes(conflict.kind)) &&
+                                        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('workspaceFixMetadata')}</span>}
+                                </div>
+                            </article>
+                        ))}
+                    </section>
+                )}
+
+                <section aria-label={t('workspaceFolders')} style={{ padding: '0 24px 14px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                        <button className={selectedFolder === null ? 'btn-primary' : 'btn-secondary'} onClick={() => setSelectedFolder(null)}>{t('workspaceAll')}</button>
+                        <button className={selectedFolder === '' ? 'btn-primary' : 'btn-secondary'} onClick={() => setSelectedFolder('')}><Folder size={14} /> {t('workspaceRoot')}</button>
+                        {folders.map(folder => (
+                            <button key={folder} className={selectedFolder === folder ? 'btn-primary' : 'btn-secondary'} onClick={() => setSelectedFolder(folder)}
+                                style={{ paddingLeft: 10 + folder.split('/').length * 8 }}>
+                                <Folder size={14} /> {folder}
+                            </button>
+                        ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <input value={folderDraft} onChange={event => setFolderDraft(event.target.value)}
+                            onKeyDown={event => { if (event.key === 'Enter') void (renamingFolder ? renameFolder(renamingFolder) : createFolder()); }}
+                            placeholder={t('workspaceNewFolderName')} aria-label={t('workspaceFolderName')} />
+                        <button className="btn-secondary" onClick={() => void (renamingFolder ? renameFolder(renamingFolder) : createFolder())}>
+                            <FolderPlus size={15} /> {t(renamingFolder ? 'workspaceRenameFolder' : 'workspaceCreateFolder')}
+                        </button>
+                        {selectedFolder && !renamingFolder &&
+                            <button className="btn-secondary" onClick={() => { setRenamingFolder(selectedFolder); setFolderDraft(selectedFolder.split('/').at(-1) || ''); }}>
+                                <Pencil size={15} /> {t('workspaceRenameFolder')}
+                            </button>}
+                        {renamingFolder && <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); }}>{t('workspaceCancel')}</button>}
+                    </div>
+                </section>
 
                 {scripts.length > 0 && (
                     <div className="script-filters">
@@ -229,6 +432,13 @@ const Scripts = () => {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
                                                     <span style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{script.name}</span>
                                                 </div>
+                                                <select value={script.folderPath || ''} aria-label={t('workspaceScriptFolder', script.name)}
+                                                    onClick={event => event.stopPropagation()}
+                                                    onChange={event => { event.stopPropagation(); void moveScript(script, event.target.value); }}
+                                                    style={{ maxWidth: '100%', fontSize: 12, marginTop: 4 }}>
+                                                    <option value="">{t('workspaceRoot')}</option>
+                                                    {folders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
+                                                </select>
                                             </td>
                                             <td style={{ maxWidth: '200px' }}>
                                                 {metadata.namespace ? (
@@ -297,6 +507,14 @@ const Scripts = () => {
                                             {metadata.version && <span>v{metadata.version}</span>}
                                             <span>{script.sourceUrl ? t('remoteLabel') : t('localLabel')}</span>
                                         </div>
+                                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '8px 0' }}>
+                                            <Folder size={14} />
+                                            <select value={script.folderPath || ''} aria-label={t('workspaceScriptFolder', script.name)}
+                                                onChange={event => void moveScript(script, event.target.value)} style={{ minWidth: 0, flex: 1 }}>
+                                                <option value="">{t('workspaceRoot')}</option>
+                                                {folders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
+                                            </select>
+                                        </label>
                                         <div className="mobile-script-actions">
                                             <button className="btn-secondary" onClick={() => navigate(`/options/scripts/${script.id}`)}>{t('editTooltip')}</button>
                                             {getUpdateUrl(script) && <button className="btn-secondary" onClick={() => handleCheckUpdate(script)}>{t('checkForUpdatesTooltip')}</button>}

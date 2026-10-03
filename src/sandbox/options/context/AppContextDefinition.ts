@@ -3,6 +3,7 @@ import { type Script, type Theme } from '../types';
 
 export interface AppContextType {
     scripts: Script[];
+    folders: string[];
     theme: Theme;
     extensionEnabled: boolean;
     setTheme: (theme: Theme) => void;
@@ -12,6 +13,7 @@ export interface AppContextType {
     saveScript: (script: Script) => Promise<void>;
     deleteScript: (id: string) => Promise<void>;
     toggleScript: (script: Script, enabled: boolean) => Promise<void>;
+    updateLibrary: (scripts: Script[], folders: string[]) => Promise<void>;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);

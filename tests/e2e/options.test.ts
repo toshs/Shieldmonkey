@@ -51,7 +51,7 @@ test('Options page - Install, Save, and Delete User Script', async () => {
     const scriptId = scriptIdMatch ? scriptIdMatch[1] : null;
     expect(scriptId).toBeTruthy();
 
-    const backBtn = frame.locator('[title="Back to Script List"]');
+    const backBtn = frame.getByRole('button', { name: /Back to scripts/i });
     await backBtn.waitFor({ state: 'visible' });
     await backBtn.click();
 

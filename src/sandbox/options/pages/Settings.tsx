@@ -15,6 +15,8 @@ const Settings = () => {
     // Local state for backup UI
     const [backupDirName, setBackupDirName] = useState<string | null>(null);
     const [backupDirPermission, setBackupDirPermission] = useState<PermissionState | null>(null);
+    const [workspaceNeedsRestore, setWorkspaceNeedsRestore] = useState(false);
+    const [workspaceSyncError, setWorkspaceSyncError] = useState<string | null>(null);
     const [lastBackupTime, setLastBackupTime] = useState<string | null>(null);
     const [isBackupLoading, setIsBackupLoading] = useState(false);
     const [backupStatus, setBackupStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -35,6 +37,8 @@ const Settings = () => {
         setFsSupported(status.supported);
         setBackupDirName(status.name);
         setBackupDirPermission(status.permission);
+        setWorkspaceNeedsRestore(status.needsRestore);
+        setWorkspaceSyncError(status.syncError);
     }, []);
 
     useEffect(() => {
@@ -64,13 +68,9 @@ const Settings = () => {
             const name = await bridge.call('SELECT_BACKUP_DIR');
             setBackupDirName(name);
             await refreshBackupDirectoryStatus();
-            if (name && autoBackup) {
-                const count = await bridge.call('RUN_BACKUP', { scripts, version: appVersion });
-                const time = new Date().toISOString();
-                await bridge.call('UPDATE_BACKUP_SETTINGS', { lastBackupTime: time });
-                setLastBackupTime(time);
+            if (name) {
                 setBackupStatus('success');
-                setBackupMessage(t('savedScriptsMsg', [String(count)]));
+                setBackupMessage(t('workspaceFolderSelected'));
             }
         } catch (e) {
             // handle abort or error
@@ -92,7 +92,7 @@ const Settings = () => {
             const granted = await bridge.call('REQUEST_BACKUP_DIR_ACCESS');
             await refreshBackupDirectoryStatus();
             if (!granted) throw new Error(t('backupFolderAccessNeeded'));
-            if (autoBackup) {
+            if (!workspaceNeedsRestore) {
                 const count = await bridge.call('RUN_BACKUP', { scripts, version: appVersion });
                 const time = new Date().toISOString();
                 await bridge.call('UPDATE_BACKUP_SETTINGS', { lastBackupTime: time });
@@ -222,13 +222,8 @@ const Settings = () => {
                         const result = await bridge.call('RUN_RESTORE', { scripts });
                         count = result.count;
 
-                        await bridge.call('UPDATE_SCRIPTS', result.mergedScripts);
-
-                        try {
-                            await bridge.call('RELOAD_SCRIPTS');
-                        } catch (msgError) {
-                            console.warn("Failed to notify background script of restore:", msgError);
-                        }
+                        void result.mergedScripts;
+                        await refreshBackupDirectoryStatus();
 
                         setRestoreStatus('success');
                         setRestoreMessage(t('restoreSuccessMsg', [String(count)]));
@@ -409,11 +404,13 @@ const Settings = () => {
                                                 <span>{t('btnSelect')}</span>
                                             </button>
                                         </div>
-                                        {isMobile() && backupDirName && (
+                                        {backupDirName && (
                                             <div style={{ marginTop: '12px' }}>
                                                 <p style={{ margin: '0 0 8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                                                    {t('backupFolderMobileNote')}
+                                                    {t('workspaceFolderDesc')}
                                                 </p>
+                                                {workspaceNeedsRestore && <p role="status">{t('workspaceSettingsNeedsRestore')}</p>}
+                                                {workspaceSyncError && <p role="alert" style={{ color: '#ef4444' }}>{workspaceSyncError}</p>}
                                                 {backupDirPermission !== 'granted' && (
                                                     <button className="btn-secondary" onClick={handleRequestBackupDirAccess} disabled={isBackupLoading}>
                                                         {t('btnAllowBackupFolder')}
@@ -425,7 +422,7 @@ const Settings = () => {
 
                                     <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '8px 0' }} />
 
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    {!backupDirName && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                         <div>
                                             <h4 style={{ fontSize: '1rem', marginBottom: '4px', fontWeight: 600 }}>{t('sectionAutoBackup')}</h4>
                                             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -438,14 +435,14 @@ const Settings = () => {
                                                 <span className="slider"></span>
                                             </label>
                                         </div>
-                                    </div>
+                                    </div>}
 
                                     {backupDirName && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px', flexWrap: 'wrap' }}>
                                             <button
                                                 className="btn-primary"
                                                 onClick={handleManualBackup}
-                                                disabled={isBackupLoading}
+                                                disabled={isBackupLoading || workspaceNeedsRestore}
                                                 style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '8px' }}
                                             >
                                                 <Save size={18} />
