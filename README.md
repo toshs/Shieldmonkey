@@ -97,6 +97,8 @@ adb push dist-vivaldi /sdcard/Download/ShieldMonkeyVivaldi
 
 In `vivaldi://extensions`, enable Developer mode and choose the `Download/ShieldMonkeyVivaldi` folder with **Load unpacked**. After loading, open the extension's **Details** and enable **Allow user scripts**.
 
+In Settings, select an Android folder under **Backup Directory** to save the same `scripts/*.user.js` and `shieldmonkey_dump.json` files as the desktop version. Automatic backup updates that folder when scripts change. If folder access expires after Vivaldi restarts, use **Allow folder access** in Settings. Automatic backups download JSON files until access is restored. Restore is a manual action in Settings.
+
 ## testing
 
 You can run E2E tests to verify Shieldmonkey's functionality.

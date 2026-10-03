@@ -24,11 +24,7 @@ export const isMobile = (): boolean => {
 };
 
 export const isFileSystemSupported = (): boolean => {
-    // Force legacy mode on mobile devices even if the API exists (e.g. Edge Android)
-    // because the behavior is often different or buggy compared to desktop.
-    if (isMobile()) return false;
-
-    return 'showDirectoryPicker' in window;
+    return typeof window.showDirectoryPicker === 'function';
 };
 
 /**

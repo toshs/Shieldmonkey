@@ -32,7 +32,8 @@ export interface BridgeActionMap {
     'GET_PENDING_INSTALL': { payload: { id: string }; response: { url: string; content: string; referrer?: string } | undefined };
     'CLEAR_PENDING_INSTALL': { payload: { id: string }; response: void };
     'SELECT_BACKUP_DIR': { payload?: never; response: string | null };
-    'GET_BACKUP_DIR_NAME': { payload?: never; response: string | null };
+    'GET_BACKUP_DIR_STATUS': { payload?: never; response: { supported: boolean; name: string | null; permission: PermissionState | null } };
+    'REQUEST_BACKUP_DIR_ACCESS': { payload?: never; response: boolean };
     'RUN_BACKUP': { payload: { scripts: Script[], version: string }; response: number };
     'RUN_RESTORE': { payload: { scripts: Script[] }; response: { count: number, mergedScripts: Script[] } };
     'CHECK_USER_SCRIPTS_PERMISSION': { payload?: never; response: boolean };

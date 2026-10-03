@@ -129,6 +129,9 @@
   "sectionBackupDir": { "message": "Backup Directory" },
   "noDirSelected": { "message": "No directory selected" },
   "btnSelect": { "message": "Select" },
+  "btnAllowBackupFolder": { "message": "Allow folder access" },
+  "backupFolderAccessNeeded": { "message": "Allow access to the backup folder to continue saving there." },
+  "backupFolderMobileNote": { "message": "On Android, folder access may need to be allowed again after reopening. Until then, automatic backups download as JSON files." },
   "sectionAutoBackup": { "message": "Automatic Backup" },
   "autoBackupDesc": { "message": "Automatically save scripts to the selected directory." },
   "freqHourly": { "message": "Every Hour" },
@@ -140,7 +143,7 @@
   "backupError": { "message": "Error" },
   "lastBackupPrefix": { "message": "Last: " },
   "sectionRestore": { "message": "Restore" },
-  "btnRestore": { "message": "Select Directory & Restore" },
+  "btnRestore": { "message": "Restore from backup folder" },
   "confirmRestoreTitle": { "message": "Restore Scripts" },
   "confirmRestoreMsg": {
     "message": "Restoring from \"$1\". This will merge/update existing scripts. Continue?",

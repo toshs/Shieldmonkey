@@ -97,6 +97,8 @@ adb push dist-vivaldi /sdcard/Download/ShieldMonkeyVivaldi
 
 Vivaldiの `vivaldi://extensions` でデベロッパーモードを有効にし、「非パッケージ拡張機能を読み込む」で `Download/ShieldMonkeyVivaldi` フォルダーを選択します。読み込み後、拡張機能の「詳細」で「ユーザー スクリプトを許可する」を有効にしてください。
 
+設定の「バックアップ保存先」でAndroidのフォルダーを選ぶと、デスクトップ版と同じ `scripts/*.user.js` と `shieldmonkey_dump.json` が保存されます。自動バックアップを有効にすると、スクリプト変更時にも同じフォルダーを更新します。Vivaldiを再起動した後などにフォルダーへの許可が切れた場合は、設定の「フォルダーへのアクセスを許可」を押してください。許可がない間の自動バックアップはJSONダウンロードに切り替わります。復元は設定から手動で実行します。
+
 ## テスト
 
 E2Eテストを実行してShieldmonkeyの機能を検証できます。

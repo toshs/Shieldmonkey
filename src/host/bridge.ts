@@ -1,5 +1,7 @@
-import { handleSelectBackupDir, handleGetBackupDirName, handleRunBackup, handleRunRestore } from './backupHandlers';
+import { handleSelectBackupDir, handleGetBackupDirStatus, handleRequestBackupDirAccess, handleRunBackup, handleRunRestore } from './backupHandlers';
 import { processScriptContent } from '../utils/importManager';
+import { getDirectoryHandle } from '../utils/backupStorage';
+import { performBackup } from '../utils/backupManager';
 import type { TypedBridgeMessage } from '../sandbox/bridge/types';
 import { isMobile, isUserScriptsAvailable } from '../utils/browserPolyfill';
 import type { Script } from '../sandbox/options/types';
@@ -49,6 +51,19 @@ async function downloadMobileBackup(scripts: unknown[], version: string): Promis
     const data = JSON.stringify({ timestamp: new Date().toISOString(), version, scripts }, null, 2);
     const filename = `shieldmonkey_autobackup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
     await downloadJson(data, filename);
+}
+
+async function backupMobile(scripts: Script[], version: string): Promise<void> {
+    try {
+        const handle = await getDirectoryHandle();
+        if (handle && await handle.queryPermission({ mode: 'readwrite' }) === 'granted') {
+            await performBackup(handle, scripts, version);
+            return;
+        }
+    } catch (error) {
+        console.warn('Folder backup unavailable; downloading a JSON backup instead:', error);
+    }
+    await downloadMobileBackup(scripts, version);
 }
 
 let autoBackupTimer: ReturnType<typeof setTimeout> | undefined;
@@ -109,12 +124,12 @@ async function handleImportDirectory() {
 }
 async function triggerAutoBackup() {
     const { autoBackup, scripts } = await chrome.storage.local.get(['autoBackup', 'scripts']);
-    if (autoBackup && Array.isArray(scripts)) {
+    if (autoBackup) {
         const version = chrome.runtime.getManifest().version;
-        const scriptsToBackup = (scripts as unknown[]).filter((script): script is Script =>
+        const scriptsToBackup = (Array.isArray(scripts) ? scripts as unknown[] : []).filter((script): script is Script =>
             !!script && typeof script === 'object' && 'id' in script && 'code' in script);
         if (isMobile()) {
-            await downloadMobileBackup(scriptsToBackup, version);
+            await backupMobile(scriptsToBackup, version);
         } else {
             await handleRunBackup(scriptsToBackup, version);
         }
@@ -230,8 +245,11 @@ export function initBridge() {
                 case 'SELECT_BACKUP_DIR':
                     result = await handleSelectBackupDir();
                     break;
-                case 'GET_BACKUP_DIR_NAME':
-                    result = await handleGetBackupDirName();
+                case 'GET_BACKUP_DIR_STATUS':
+                    result = await handleGetBackupDirStatus();
+                    break;
+                case 'REQUEST_BACKUP_DIR_ACCESS':
+                    result = await handleRequestBackupDirAccess();
                     break;
                 case 'RUN_BACKUP':
                     // payload: { scripts, version }

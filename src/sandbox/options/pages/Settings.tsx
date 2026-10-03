@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Save, FolderInput, Clock, Check, AlertCircle, RotateCcw, Sun, Moon, Monitor, Upload, Download } from 'lucide-react';
 import { useApp } from '../context/useApp';
 import { useModal } from '../context/useModal';
 import { performBackupLegacy, performRestoreLegacy } from '../../../utils/backupManager';
 import { useI18n } from '../../context/I18nContext';
-import { isFileSystemSupported } from '../../../utils/browserPolyfill';
+import { isMobile } from '../../../utils/browserPolyfill';
 import { bridge } from '../../bridge/client';
 
 const Settings = () => {
@@ -14,6 +14,7 @@ const Settings = () => {
 
     // Local state for backup UI
     const [backupDirName, setBackupDirName] = useState<string | null>(null);
+    const [backupDirPermission, setBackupDirPermission] = useState<PermissionState | null>(null);
     const [lastBackupTime, setLastBackupTime] = useState<string | null>(null);
     const [isBackupLoading, setIsBackupLoading] = useState(false);
     const [backupStatus, setBackupStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -25,21 +26,19 @@ const Settings = () => {
     const [classicRestoreStatus, setClassicRestoreStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [classicRestoreMessage, setClassicRestoreMessage] = useState<string>('');
     const [autoBackup, setAutoBackup] = useState(false);
-    const [fsSupported, setFsSupported] = useState(true);
+    const [fsSupported, setFsSupported] = useState(false);
     const [appVersion, setAppVersion] = useState<string>('');
     const restoreInputRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-        // Check if FS supported (Host always supports it if Chrome/Edge, but we can check via bridge or just assume based on response)
-        // Actually, we can check browser here
-        const supported = isFileSystemSupported();
-        setFsSupported(supported);
+    const refreshBackupDirectoryStatus = useCallback(async () => {
+        const status = await bridge.call('GET_BACKUP_DIR_STATUS');
+        setFsSupported(status.supported);
+        setBackupDirName(status.name);
+        setBackupDirPermission(status.permission);
+    }, []);
 
-        if (supported) {
-            bridge.call('GET_BACKUP_DIR_NAME').then(name => {
-                if (name) setBackupDirName(name);
-            });
-        }
+    useEffect(() => {
+        void refreshBackupDirectoryStatus().catch(error => console.error('Failed to read backup folder:', error));
 
         const init = async () => {
             try {
@@ -54,7 +53,7 @@ const Settings = () => {
             }
         };
         init();
-    }, []);
+    }, [refreshBackupDirectoryStatus]);
 
     const handleSelectBackupDir = async () => {
         if (!fsSupported) return;
@@ -64,6 +63,15 @@ const Settings = () => {
             setIsBackupLoading(true);
             const name = await bridge.call('SELECT_BACKUP_DIR');
             setBackupDirName(name);
+            await refreshBackupDirectoryStatus();
+            if (name && autoBackup) {
+                const count = await bridge.call('RUN_BACKUP', { scripts, version: appVersion });
+                const time = new Date().toISOString();
+                await bridge.call('UPDATE_BACKUP_SETTINGS', { lastBackupTime: time });
+                setLastBackupTime(time);
+                setBackupStatus('success');
+                setBackupMessage(t('savedScriptsMsg', [String(count)]));
+            }
         } catch (e) {
             // handle abort or error
             if ((e as Error).message !== 'Selection cancelled') {
@@ -71,6 +79,30 @@ const Settings = () => {
                 setBackupStatus('error');
                 setBackupMessage((e as Error).message);
             }
+        } finally {
+            setIsBackupLoading(false);
+        }
+    };
+
+    const handleRequestBackupDirAccess = async () => {
+        try {
+            setBackupStatus('idle');
+            setBackupMessage('');
+            setIsBackupLoading(true);
+            const granted = await bridge.call('REQUEST_BACKUP_DIR_ACCESS');
+            await refreshBackupDirectoryStatus();
+            if (!granted) throw new Error(t('backupFolderAccessNeeded'));
+            if (autoBackup) {
+                const count = await bridge.call('RUN_BACKUP', { scripts, version: appVersion });
+                const time = new Date().toISOString();
+                await bridge.call('UPDATE_BACKUP_SETTINGS', { lastBackupTime: time });
+                setLastBackupTime(time);
+                setBackupStatus('success');
+                setBackupMessage(t('savedScriptsMsg', [String(count)]));
+            }
+        } catch (error) {
+            setBackupStatus('error');
+            setBackupMessage((error as Error).message || String(error));
         } finally {
             setIsBackupLoading(false);
         }
@@ -90,6 +122,7 @@ const Settings = () => {
             // Use current scripts from context
             if (fsSupported) {
                 count = await bridge.call('RUN_BACKUP', { scripts, version: appVersion });
+                setBackupDirPermission('granted');
                 setBackupStatus('success');
                 setBackupMessage(t('savedScriptsMsg', [String(count)]));
             } else {
@@ -351,16 +384,18 @@ const Settings = () => {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                     <div>
                                         <h4 style={{ fontSize: '1rem', marginBottom: '8px', fontWeight: 600 }}>{t('sectionBackupDir')}</h4>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                                             <div style={{
                                                 flex: 1,
+                                                minWidth: '140px',
                                                 background: fsSupported ? 'rgba(0,0,0,0.2)' : 'var(--bg-color)',
                                                 border: '1px solid var(--border-color)',
                                                 borderRadius: '6px',
                                                 padding: '8px 12px',
                                                 fontSize: '0.9rem',
                                                 color: (backupDirName && fsSupported) ? 'var(--text-primary)' : 'var(--text-secondary)',
-                                                fontFamily: 'monospace'
+                                                fontFamily: 'monospace',
+                                                overflowWrap: 'anywhere'
                                             }}>
                                                 {backupDirName || t('noDirSelected')}
                                             </div>
@@ -374,6 +409,18 @@ const Settings = () => {
                                                 <span>{t('btnSelect')}</span>
                                             </button>
                                         </div>
+                                        {isMobile() && backupDirName && (
+                                            <div style={{ marginTop: '12px' }}>
+                                                <p style={{ margin: '0 0 8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                                    {t('backupFolderMobileNote')}
+                                                </p>
+                                                {backupDirPermission !== 'granted' && (
+                                                    <button className="btn-secondary" onClick={handleRequestBackupDirAccess} disabled={isBackupLoading}>
+                                                        {t('btnAllowBackupFolder')}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
 
                                     <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '8px 0' }} />
@@ -382,19 +429,19 @@ const Settings = () => {
                                         <div>
                                             <h4 style={{ fontSize: '1rem', marginBottom: '4px', fontWeight: 600 }}>{t('sectionAutoBackup')}</h4>
                                             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                                                {t('autoBackupDesc')}
+                                                {isMobile() && backupDirPermission !== 'granted' ? t('autoBackupMobileDesc') : t('autoBackupDesc')}
                                             </p>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                             <label className="switch">
-                                                <input type="checkbox" checked={autoBackup} onChange={(e) => toggleAutoBackup(e.target.checked)} disabled={!backupDirName} />
+                                                <input type="checkbox" checked={autoBackup} onChange={(e) => toggleAutoBackup(e.target.checked)} disabled={!backupDirName && !isMobile()} />
                                                 <span className="slider"></span>
                                             </label>
                                         </div>
                                     </div>
 
                                     {backupDirName && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px', flexWrap: 'wrap' }}>
                                             <button
                                                 className="btn-primary"
                                                 onClick={handleManualBackup}

@@ -142,6 +142,10 @@ export async function performRestore(existingHandle: FileSystemDirectoryHandle |
         throw new Error("No backup directory available.");
     }
 
+    if (!await verifyPermission(handle, false)) {
+        throw new Error("Permission denied. User interaction required.");
+    }
+
     try {
         const dumpHandle = await handle.getFileHandle('shieldmonkey_dump.json', { create: false });
         const file = await dumpHandle.getFile();

@@ -38,7 +38,7 @@ test('Backup and Restore Logic', async () => {
 
     await expect.poll(async () => frame.getByText(/Saved \d+ scripts/).isVisible()).toBe(true);
 
-    const restoreBtn = frame.getByRole('button', { name: /Select Directory & Restore/i });
+    const restoreBtn = frame.getByRole('button', { name: /Restore from backup folder/i });
     await restoreBtn.click();
 
     const modal = frame.locator('.modal-content');
@@ -53,5 +53,5 @@ test('Backup and Restore Logic', async () => {
 
     // Scripts list is also in iframe
     const scriptsFrame = newPage.frameLocator('iframe');
-    await expect.poll(async () => scriptsFrame.getByText('Restored Script').isVisible()).toBe(true);
+    await expect.poll(async () => scriptsFrame.getByText('Restored Script').first().isVisible()).toBe(true);
 });

@@ -129,6 +129,9 @@
   "sectionBackupDir": { "message": "バックアップ保存先" },
   "noDirSelected": { "message": "ディレクトリ未選択" },
   "btnSelect": { "message": "選択" },
+  "btnAllowBackupFolder": { "message": "フォルダーへのアクセスを許可" },
+  "backupFolderAccessNeeded": { "message": "保存先フォルダーへのアクセスを許可してください。" },
+  "backupFolderMobileNote": { "message": "Androidでは再起動後にフォルダーへの再許可が必要な場合があります。許可するまでは自動バックアップをJSONファイルとしてダウンロードします。" },
   "sectionAutoBackup": { "message": "自動バックアップ" },
   "autoBackupDesc": { "message": "スクリプトを選択したディレクトリに自動的に保存します。" },
   "freqHourly": { "message": "1時間ごと" },
@@ -140,7 +143,7 @@
   "backupError": { "message": "エラー" },
   "lastBackupPrefix": { "message": "最終: " },
   "sectionRestore": { "message": "復元" },
-  "btnRestore": { "message": "ディレクトリを選択して復元" },
+  "btnRestore": { "message": "この保存先から復元" },
   "confirmRestoreTitle": { "message": "スクリプトの復元" },
   "confirmRestoreMsg": {
     "message": "「$1」から復元します。既存のスクリプトはマージまたは更新されます。続行しますか？",
