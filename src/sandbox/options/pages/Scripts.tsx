@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste, Folder, FolderPlus, History, Pencil } from 'lucide-react';
+import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste, Folder, FolderPlus, History, Pencil, MoreHorizontal } from 'lucide-react';
 import { useApp } from '../context/useApp';
 import { useModal } from '../context/useModal';
 import ToggleSwitch from '../components/ToggleSwitch';
@@ -69,6 +69,8 @@ const Scripts = () => {
     const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
     const [folderDraft, setFolderDraft] = useState('');
     const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+    const [showFolderTools, setShowFolderTools] = useState(false);
+    const [selectionMode, setSelectionMode] = useState(false);
     const [conflicts, setConflicts] = useState<WorkspaceConflict[]>([]);
     const [workspaceNotice, setWorkspaceNotice] = useState('');
     const [scanning, setScanning] = useState(false);
@@ -203,6 +205,7 @@ const Scripts = () => {
                 }
                 setScripts((prev: Script[]) => prev.filter((s: Script) => !selectedScriptIds.has(s.id)));
                 setSelectedScriptIds(new Set());
+                setSelectionMode(false);
             } catch (e) {
                 console.error("Failed to delete", e);
                 showModal('error', t('deleteFailed'), (e as Error).message);
@@ -289,31 +292,34 @@ const Scripts = () => {
     };
 
     return (
-        <div className="content-scroll" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', padding: 0 }}>
-            <div className="script-table-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', maxWidth: '100%', margin: 0 }}>
-                <div className="page-header" style={{ height: 'auto', minHeight: '40px', flexShrink: 0, padding: '32px 48px 24px 48px', marginBottom: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <h2 className="page-title">{t('myScripts', [String(scripts.length)])}</h2>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <div className="header-actions">
-                            <button className="btn-secondary" onClick={handleImportFile}><FileUp size={16} /> {t('importFile')}</button>
-                            {!isMobile() && <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>}
-                            <button className="btn-secondary" onClick={() => navigate('/options/new', { state: { openPaste: true, folderPath: selectedFolder || '' } })}><ClipboardPaste size={16} /> {t('createFromPaste')}</button>
-                            <button className="btn-primary" onClick={handleNewScript}><Plus size={16} /> {t('newScript')}</button>
-                        </div>
-                    </div>
+        <div className="content-scroll scripts-page">
+            <div className="script-table-container scripts-layout">
+                <div className="page-header scripts-header">
+                    <h2 className="page-title">{t('myScripts', [String(scripts.length)])}</h2>
+                    <button className="btn-primary scripts-new-button" onClick={handleNewScript}><Plus size={16} /> {t('newScript')}</button>
                 </div>
 
-                <div style={{ padding: '0 24px 12px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                    <button className="btn-secondary" onClick={() => void scanWorkspace()} disabled={scanning || !workspaceLinked}>
-                        <RefreshCw size={15} /> {scanning ? t('workspaceScanning') : t('workspaceRefresh')}
+                <div className="scripts-quick-actions">
+                    <button className="btn-secondary" onClick={() => navigate('/options/new', { state: { openPaste: true, folderPath: selectedFolder || '' } })}>
+                        <ClipboardPaste size={16} /> <span className="desktop-label">{t('createFromPaste')}</span><span className="mobile-label">{t('pasteCode')}</span>
                     </button>
-                    <button className="btn-secondary" onClick={() => navigate('/options/history')} disabled={!workspaceLinked}>
-                        <History size={15} /> {t('workspaceHistory')}
-                    </button>
-                    {workspaceNotice && <span role="status" style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{workspaceNotice}</span>}
+                    {workspaceLinked && <button className="btn-secondary" onClick={() => void scanWorkspace()} disabled={scanning} aria-label={scanning ? t('workspaceScanning') : t('workspaceRefresh')}>
+                        <RefreshCw size={15} /> <span className="mobile-hidden-label">{scanning ? t('workspaceScanning') : t('workspaceRefresh')}</span>
+                    </button>}
+                    <details className="scripts-more-menu">
+                        <summary aria-label={t('moreActions')}><MoreHorizontal size={18} /> <span className="mobile-hidden-label">{t('moreActions')}</span></summary>
+                        <div className="scripts-more-content">
+                            <button className="btn-secondary" onClick={handleImportFile}><FileUp size={16} /> {t('importFile')}</button>
+                            {!isMobile() && <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>}
+                            {workspaceLinked && <button className="btn-secondary" onClick={() => navigate('/options/history')}><History size={16} /> {t('workspaceHistory')}</button>}
+                            <button className="btn-secondary" onClick={event => { setShowFolderTools(value => !value); event.currentTarget.closest('details')?.removeAttribute('open'); }}><FolderPlus size={16} /> {t('workspaceManageFolders')}</button>
+                            {scripts.length > 0 && <button className="btn-secondary mobile-selection-toggle" onClick={event => { setSelectionMode(value => !value); setSelectedScriptIds(new Set()); event.currentTarget.closest('details')?.removeAttribute('open'); }}>
+                                {selectionMode ? t('workspaceCancel') : t('selectScripts')}
+                            </button>}
+                        </div>
+                    </details>
                 </div>
+                {workspaceNotice && <p className="scripts-workspace-notice" role="status">{workspaceNotice}</p>}
 
                 {conflicts.length > 0 && (
                     <section aria-label={t('workspaceConflictSection')} style={{ padding: '8px 24px', maxHeight: '38vh', overflow: 'auto', flexShrink: 0, borderBlock: '1px solid var(--border-color)' }}>
@@ -342,18 +348,18 @@ const Scripts = () => {
                     </section>
                 )}
 
-                <section aria-label={t('workspaceFolders')} style={{ padding: '0 24px 14px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                        <button className={selectedFolder === null ? 'btn-primary' : 'btn-secondary'} onClick={() => setSelectedFolder(null)}>{t('workspaceAll')}</button>
-                        <button className={selectedFolder === '' ? 'btn-primary' : 'btn-secondary'} onClick={() => setSelectedFolder('')}><Folder size={14} /> {t('workspaceRoot')}</button>
-                        {folders.map(folder => (
-                            <button key={folder} className={selectedFolder === folder ? 'btn-primary' : 'btn-secondary'} onClick={() => setSelectedFolder(folder)}
-                                style={{ paddingLeft: 10 + folder.split('/').length * 8 }}>
-                                <Folder size={14} /> {folder}
-                            </button>
-                        ))}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <section aria-label={t('workspaceFolders')} className="scripts-folder-section">
+                    <label className="scripts-folder-picker">
+                        <Folder size={17} aria-hidden="true" />
+                        <span>{t('workspaceFolders')}</span>
+                        <select value={selectedFolder === null ? 'all' : selectedFolder === '' ? 'root' : `folder:${selectedFolder}`}
+                            onChange={event => setSelectedFolder(event.target.value === 'all' ? null : event.target.value === 'root' ? '' : event.target.value.slice(7))}>
+                            <option value="all">{t('workspaceAll')}</option>
+                            <option value="root">{t('workspaceRoot')}</option>
+                            {folders.map(folder => <option key={folder} value={`folder:${folder}`}>{folder}</option>)}
+                        </select>
+                    </label>
+                    {showFolderTools && <div className="scripts-folder-tools">
                         <input value={folderDraft} onChange={event => setFolderDraft(event.target.value)}
                             onKeyDown={event => { if (event.key === 'Enter') void (renamingFolder ? renameFolder(renamingFolder) : createFolder()); }}
                             placeholder={t('workspaceNewFolderName')} aria-label={t('workspaceFolderName')} />
@@ -365,10 +371,10 @@ const Scripts = () => {
                                 <Pencil size={15} /> {t('workspaceRenameFolder')}
                             </button>}
                         {renamingFolder && <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); }}>{t('workspaceCancel')}</button>}
-                    </div>
+                    </div>}
                 </section>
 
-                {scripts.length > 0 && (
+                {(scripts.length > 1 || query || statusFilter !== 'all' || sortBy !== 'name') && (
                     <div className="script-filters">
                         <input
                             type="search"
@@ -377,15 +383,20 @@ const Scripts = () => {
                             placeholder={t('searchScripts')}
                             aria-label={t('searchScripts')}
                         />
-                        <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} aria-label={t('filterScripts')}>
-                            <option value="all">{t('filterAll')}</option>
-                            <option value="enabled">{t('filterEnabled')}</option>
-                            <option value="disabled">{t('filterDisabled')}</option>
-                        </select>
-                        <select value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)} aria-label={t('sortScripts')}>
-                            <option value="name">{t('sortName')}</option>
-                            <option value="recent">{t('sortRecent')}</option>
-                        </select>
+                        <details className="scripts-filter-more">
+                            <summary>{t('filterScripts')}</summary>
+                            <div>
+                                <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} aria-label={t('filterScripts')}>
+                                    <option value="all">{t('filterAll')}</option>
+                                    <option value="enabled">{t('filterEnabled')}</option>
+                                    <option value="disabled">{t('filterDisabled')}</option>
+                                </select>
+                                <select value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)} aria-label={t('sortScripts')}>
+                                    <option value="name">{t('sortName')}</option>
+                                    <option value="recent">{t('sortRecent')}</option>
+                                </select>
+                            </div>
+                        </details>
                     </div>
                 )}
 
@@ -489,37 +500,38 @@ const Scripts = () => {
                             </tbody>
                         </table>
                         <div className="mobile-script-list">
-                            <label className="select-visible">
+                            {selectionMode && <label className="select-visible">
                                 <input type="checkbox" checked={visibleScripts.every((script: Script) => selectedScriptIds.has(script.id))} onChange={toggleSelectAll} />
                                 {t('selectAllVisible')}
-                            </label>
+                            </label>}
                             {visibleScripts.map((script: Script) => {
                                 const metadata = parseMetadata(script.code);
                                 return (
                                     <article className="mobile-script-card" key={script.id}>
                                         <div className="mobile-script-card-header">
-                                            <input type="checkbox" checked={selectedScriptIds.has(script.id)} onChange={() => toggleScriptSelection(script.id)} aria-label={`${t('selectScript')} ${script.name}`} />
+                                            {selectionMode && <input type="checkbox" checked={selectedScriptIds.has(script.id)} onChange={() => toggleScriptSelection(script.id)} aria-label={`${t('selectScript')} ${script.name}`} />}
                                             <button className="mobile-script-name" onClick={() => navigate(`/options/scripts/${script.id}`)}>{script.name}</button>
                                             <ToggleSwitch checked={!!script.enabled} onChange={() => toggleScript(script, !script.enabled)} />
                                         </div>
                                         <div className="mobile-script-meta">
+                                            <span className="mobile-script-folder"><Folder size={13} aria-hidden="true" /> {script.folderPath || t('workspaceRoot')}</span>
                                             {metadata.namespace && <span>{metadata.namespace}</span>}
                                             {metadata.version && <span>v{metadata.version}</span>}
-                                            <span>{script.sourceUrl ? t('remoteLabel') : t('localLabel')}</span>
                                         </div>
-                                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '8px 0' }}>
-                                            <Folder size={14} />
-                                            <select value={script.folderPath || ''} aria-label={t('workspaceScriptFolder', script.name)}
-                                                onChange={event => void moveScript(script, event.target.value)} style={{ minWidth: 0, flex: 1 }}>
-                                                <option value="">{t('workspaceRoot')}</option>
-                                                {folders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
-                                            </select>
-                                        </label>
-                                        <div className="mobile-script-actions">
-                                            <button className="btn-secondary" onClick={() => navigate(`/options/scripts/${script.id}`)}>{t('editTooltip')}</button>
-                                            {getUpdateUrl(script) && <button className="btn-secondary" onClick={() => handleCheckUpdate(script)}>{t('checkForUpdatesTooltip')}</button>}
-                                            <button className="btn-secondary mobile-delete" onClick={() => handleDeleteScript(script)}>{t('deleteTooltip')}</button>
-                                        </div>
+                                        <details className="mobile-script-more">
+                                            <summary><MoreHorizontal size={17} /> {t('moreActions')}</summary>
+                                            <div className="mobile-script-actions">
+                                                <label className="mobile-script-move">
+                                                    {t('workspaceScriptFolder', script.name)}
+                                                    <select value={script.folderPath || ''} aria-label={t('workspaceScriptFolder', script.name)} onChange={event => void moveScript(script, event.target.value)}>
+                                                        <option value="">{t('workspaceRoot')}</option>
+                                                        {folders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
+                                                    </select>
+                                                </label>
+                                                {getUpdateUrl(script) && <button className="btn-secondary" onClick={() => handleCheckUpdate(script)}>{t('checkForUpdatesTooltip')}</button>}
+                                                <button className="btn-secondary mobile-delete" onClick={() => handleDeleteScript(script)}>{t('deleteTooltip')}</button>
+                                            </div>
+                                        </details>
                                     </article>
                                 );
                             })}
