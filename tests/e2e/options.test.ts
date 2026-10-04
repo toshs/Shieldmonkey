@@ -43,6 +43,7 @@ test('Options page - Install, Save, and Delete User Script', async () => {
     const saveBtn = frame.getByRole('button', { name: /Save/i });
     await expect.poll(async () => saveBtn.isEnabled()).toBe(true);
     await saveBtn.click();
+    await expect.poll(async () => frame.getByRole('button', { name: /Saved|保存済み/ }).isDisabled()).toBe(true);
 
     // After save, it should likely navigate to /options/scripts/:id
     await page.waitForTimeout(1000); // Wait for save and nav

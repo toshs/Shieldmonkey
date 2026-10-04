@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste, Folder, FolderPlus, History, Pencil, MoreHorizontal } from 'lucide-react';
+import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste, Folder, FolderPlus, History, Pencil, MoreHorizontal, ChevronRight, ArrowLeft, MoveRight } from 'lucide-react';
 import { useApp } from '../context/useApp';
 import { useModal } from '../context/useModal';
 import ToggleSwitch from '../components/ToggleSwitch';
@@ -66,10 +66,12 @@ const Scripts = () => {
     const [query, setQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
     const [sortBy, setSortBy] = useState<'name' | 'recent'>('name');
-    const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+    const [selectedFolder, setSelectedFolder] = useState('');
     const [folderDraft, setFolderDraft] = useState('');
     const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
     const [showFolderTools, setShowFolderTools] = useState(false);
+    const [movingScript, setMovingScript] = useState<Script | null>(null);
+    const [moveDestination, setMoveDestination] = useState('');
     const [selectionMode, setSelectionMode] = useState(false);
     const [conflicts, setConflicts] = useState<WorkspaceConflict[]>([]);
     const [workspaceNotice, setWorkspaceNotice] = useState('');
@@ -115,9 +117,10 @@ const Scripts = () => {
             const name = folderDraft.trim();
             if (!name || name.includes('/')) throw new Error(t('workspaceInvalidFolderName'));
             const folder = normalizeFolder(`${selectedFolder ? selectedFolder + '/' : ''}${name}`);
-            if (folders.includes(folder)) throw new Error(t('workspaceFolderExists'));
+            if (allFolders.includes(folder)) throw new Error(t('workspaceFolderExists'));
             await updateLibrary(scripts, [...folders, folder].sort());
             setFolderDraft('');
+            setShowFolderTools(false);
         } catch (error) {
             showModal('error', t('workspaceCreateFolderFailed'), (error as Error).message);
         }
@@ -134,9 +137,10 @@ const Scripts = () => {
                 scripts.map(script => ({ ...script, folderPath: replace(script.folderPath || '') })),
                 folders.map(replace).sort(),
             );
-            if (selectedFolder?.startsWith(oldPath)) setSelectedFolder(replace(selectedFolder));
+            if (selectedFolder === oldPath || selectedFolder.startsWith(oldPath + '/')) setSelectedFolder(replace(selectedFolder));
             setRenamingFolder(null);
             setFolderDraft('');
+            setShowFolderTools(false);
         } catch (error) {
             showModal('error', t('workspaceRenameFolderFailed'), (error as Error).message);
         }
@@ -144,6 +148,7 @@ const Scripts = () => {
     const moveScript = async (script: Script, folderPath: string) => {
         try {
             await updateLibrary(scripts.map(item => item.id === script.id ? { ...item, folderPath } : item), folders);
+            setMovingScript(null);
         } catch (error) {
             showModal('error', t('workspaceMoveScriptFailed'), (error as Error).message);
         }
@@ -158,18 +163,34 @@ const Scripts = () => {
             showModal('error', t('workspaceResolveFailed'), (error as Error).message);
         }
     };
+    const allFolders = useMemo(() => {
+        const paths = new Set<string>();
+        for (const path of [...folders, ...scripts.map(script => script.folderPath || '')]) {
+            const parts = path.split('/');
+            for (let index = 1; index <= parts.length; index++) {
+                const folder = parts.slice(0, index).join('/');
+                if (folder) paths.add(folder);
+            }
+        }
+        return [...paths].sort((a, b) => a.localeCompare(b));
+    }, [folders, scripts]);
+    const childFolders = useCallback((parent: string) => allFolders.filter(folder =>
+        (parent ? folder.startsWith(parent + '/') : true) &&
+        folder.slice(parent ? parent.length + 1 : 0).indexOf('/') === -1 && folder !== parent
+    ), [allFolders]);
+    const folderCrumbs = selectedFolder ? selectedFolder.split('/').map((part, index, parts) => ({
+        name: part, path: parts.slice(0, index + 1).join('/'),
+    })) : [];
+    const visibleFolders = query.trim() ? [] : childFolders(selectedFolder);
     const visibleScripts = useMemo(() => {
         const term = query.trim().toLocaleLowerCase();
         return scripts.filter((script: Script) => {
-            if (selectedFolder !== null) {
-                const path = script.folderPath || '';
-                if (selectedFolder === '' ? path !== '' : path !== selectedFolder && !path.startsWith(selectedFolder + '/')) return false;
-            }
+            if (!term && (script.folderPath || '') !== selectedFolder) return false;
             if (statusFilter === 'enabled' && !script.enabled) return false;
             if (statusFilter === 'disabled' && script.enabled) return false;
             if (!term) return true;
             const metadata = parseMetadata(script.code);
-            return [script.name, metadata.namespace, script.sourceUrl]
+            return [script.name, metadata.namespace, script.sourceUrl, script.folderPath]
                 .some(value => value?.toLocaleLowerCase().includes(term));
         }).sort((a: Script, b: Script) => sortBy === 'recent'
             ? (b.updateDate || b.installDate || 0) - (a.updateDate || a.installDate || 0)
@@ -312,7 +333,6 @@ const Scripts = () => {
                             <button className="btn-secondary" onClick={handleImportFile}><FileUp size={16} /> {t('importFile')}</button>
                             {!isMobile() && <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>}
                             {workspaceLinked && <button className="btn-secondary" onClick={() => navigate('/options/history')}><History size={16} /> {t('workspaceHistory')}</button>}
-                            <button className="btn-secondary" onClick={event => { setShowFolderTools(value => !value); event.currentTarget.closest('details')?.removeAttribute('open'); }}><FolderPlus size={16} /> {t('workspaceManageFolders')}</button>
                             {scripts.length > 0 && <button className="btn-secondary mobile-selection-toggle" onClick={event => { setSelectionMode(value => !value); setSelectedScriptIds(new Set()); event.currentTarget.closest('details')?.removeAttribute('open'); }}>
                                 {selectionMode ? t('workspaceCancel') : t('selectScripts')}
                             </button>}
@@ -349,16 +369,14 @@ const Scripts = () => {
                 )}
 
                 <section aria-label={t('workspaceFolders')} className="scripts-folder-section">
-                    <label className="scripts-folder-picker">
-                        <Folder size={17} aria-hidden="true" />
-                        <span>{t('workspaceFolders')}</span>
-                        <select value={selectedFolder === null ? 'all' : selectedFolder === '' ? 'root' : `folder:${selectedFolder}`}
-                            onChange={event => setSelectedFolder(event.target.value === 'all' ? null : event.target.value === 'root' ? '' : event.target.value.slice(7))}>
-                            <option value="all">{t('workspaceAll')}</option>
-                            <option value="root">{t('workspaceRoot')}</option>
-                            {folders.map(folder => <option key={folder} value={`folder:${folder}`}>{folder}</option>)}
-                        </select>
-                    </label>
+                    <nav className="scripts-breadcrumbs" aria-label={t('workspaceFolders')}>
+                        <button onClick={() => setSelectedFolder('')} aria-current={!selectedFolder ? 'page' : undefined}>{t('workspaceRoot')}</button>
+                        {folderCrumbs.map(crumb => <span key={crumb.path} className="scripts-crumb"><ChevronRight size={14} aria-hidden="true" /><button onClick={() => setSelectedFolder(crumb.path)} aria-current={selectedFolder === crumb.path ? 'page' : undefined}>{crumb.name}</button></span>)}
+                    </nav>
+                    <div className="scripts-folder-actions">
+                        <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); setShowFolderTools(value => !value); }}><FolderPlus size={16} /> {t('workspaceCreateFolder')}</button>
+                        {selectedFolder && <button className="btn-secondary" onClick={() => { setRenamingFolder(selectedFolder); setFolderDraft(selectedFolder.split('/').at(-1) || ''); setShowFolderTools(true); }}><Pencil size={15} /> {t('workspaceRenameFolder')}</button>}
+                    </div>
                     {showFolderTools && <div className="scripts-folder-tools">
                         <input value={folderDraft} onChange={event => setFolderDraft(event.target.value)}
                             onKeyDown={event => { if (event.key === 'Enter') void (renamingFolder ? renameFolder(renamingFolder) : createFolder()); }}
@@ -366,11 +384,7 @@ const Scripts = () => {
                         <button className="btn-secondary" onClick={() => void (renamingFolder ? renameFolder(renamingFolder) : createFolder())}>
                             <FolderPlus size={15} /> {t(renamingFolder ? 'workspaceRenameFolder' : 'workspaceCreateFolder')}
                         </button>
-                        {selectedFolder && !renamingFolder &&
-                            <button className="btn-secondary" onClick={() => { setRenamingFolder(selectedFolder); setFolderDraft(selectedFolder.split('/').at(-1) || ''); }}>
-                                <Pencil size={15} /> {t('workspaceRenameFolder')}
-                            </button>}
-                        {renamingFolder && <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); }}>{t('workspaceCancel')}</button>}
+                        <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); setShowFolderTools(false); }}>{t('workspaceCancel')}</button>
                     </div>}
                 </section>
 
@@ -400,7 +414,7 @@ const Scripts = () => {
                     </div>
                 )}
 
-                {scripts.length === 0 ? (
+                {scripts.length === 0 && visibleFolders.length === 0 && !selectedFolder ? (
                     <div className="empty-dashboard" style={{ textAlign: 'center', marginTop: '4rem', color: 'var(--text-secondary)', flex: 1, overflow: 'auto' }}>
                         <div className="empty-icon-wrapper" style={{ background: 'var(--surface-bg)', borderRadius: '50%', padding: '2rem', display: 'inline-block', marginBottom: '1rem' }}>
                             <Terminal size={48} />
@@ -408,10 +422,15 @@ const Scripts = () => {
                         <h3>{t('noScriptsFound')}</h3>
                         <p>{t('createScriptToStart')}</p>
                     </div>
-                ) : visibleScripts.length === 0 ? (
-                    <div className="empty-dashboard">{t('noSearchResults')}</div>
                 ) : (
                     <div className="script-list-scroll">
+                        {!query.trim() && selectedFolder && <button className="scripts-parent-row" onClick={() => setSelectedFolder(selectedFolder.split('/').slice(0, -1).join('/'))}><ArrowLeft size={18} /> {t('workspaceParentFolder')}</button>}
+                        {visibleFolders.map(folder => <div className="scripts-folder-row" key={folder}>
+                            <button className="scripts-folder-open" onClick={() => setSelectedFolder(folder)}><Folder size={20} aria-hidden="true" /><span>{folder.split('/').at(-1)}</span><ChevronRight size={18} aria-hidden="true" /></button>
+                            <button className="scripts-folder-rename" onClick={() => { setSelectedFolder(folder); setRenamingFolder(folder); setFolderDraft(folder.split('/').at(-1) || ''); setShowFolderTools(true); }} aria-label={`${t('workspaceRenameFolder')}: ${folder}`}><Pencil size={15} /></button>
+                        </div>)}
+                        {visibleScripts.length === 0 && <div className="scripts-empty-folder">{query.trim() ? t('noSearchResults') : t('workspaceEmptyFolder')}</div>}
+                        {visibleScripts.length > 0 && <>
                         <table className="script-table compact" style={{ minWidth: '800px' }}>
                             <thead>
                                 <tr>
@@ -443,13 +462,7 @@ const Scripts = () => {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
                                                     <span style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{script.name}</span>
                                                 </div>
-                                                <select value={script.folderPath || ''} aria-label={t('workspaceScriptFolder', script.name)}
-                                                    onClick={event => event.stopPropagation()}
-                                                    onChange={event => { event.stopPropagation(); void moveScript(script, event.target.value); }}
-                                                    style={{ maxWidth: '100%', fontSize: 12, marginTop: 4 }}>
-                                                    <option value="">{t('workspaceRoot')}</option>
-                                                    {folders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
-                                                </select>
+                                                {query.trim() && <small className="scripts-result-path">{script.folderPath || t('workspaceRoot')}</small>}
                                             </td>
                                             <td style={{ maxWidth: '200px' }}>
                                                 {metadata.namespace ? (
@@ -490,6 +503,7 @@ const Scripts = () => {
                                                 {script.installDate ? new Date(script.installDate).toLocaleDateString() : '-'}
                                             </td>
                                             <td className="col-actions">
+                                                <button className="action-btn" onClick={() => { setMovingScript(script); setMoveDestination(script.folderPath || ''); }} title={t('workspaceMoveTo')} aria-label={`${t('workspaceMoveTo')}: ${script.name}`}><MoveRight size={16} /></button>
                                                 <button className="action-btn delete" onClick={(e) => { e.stopPropagation(); handleDeleteScript(script); }} title={t('deleteTooltip')}>
                                                     <Trash2 size={16} />
                                                 </button>
@@ -514,20 +528,14 @@ const Scripts = () => {
                                             <ToggleSwitch checked={!!script.enabled} onChange={() => toggleScript(script, !script.enabled)} />
                                         </div>
                                         <div className="mobile-script-meta">
-                                            <span className="mobile-script-folder"><Folder size={13} aria-hidden="true" /> {script.folderPath || t('workspaceRoot')}</span>
+                                            {query.trim() && <span className="mobile-script-folder"><Folder size={13} aria-hidden="true" /> {script.folderPath || t('workspaceRoot')}</span>}
                                             {metadata.namespace && <span>{metadata.namespace}</span>}
                                             {metadata.version && <span>v{metadata.version}</span>}
                                         </div>
                                         <details className="mobile-script-more">
                                             <summary><MoreHorizontal size={17} /> {t('moreActions')}</summary>
                                             <div className="mobile-script-actions">
-                                                <label className="mobile-script-move">
-                                                    {t('workspaceScriptFolder', script.name)}
-                                                    <select value={script.folderPath || ''} aria-label={t('workspaceScriptFolder', script.name)} onChange={event => void moveScript(script, event.target.value)}>
-                                                        <option value="">{t('workspaceRoot')}</option>
-                                                        {folders.map(folder => <option key={folder} value={folder}>{folder}</option>)}
-                                                    </select>
-                                                </label>
+                                                <button className="btn-secondary" onClick={() => { setMovingScript(script); setMoveDestination(script.folderPath || ''); }}><MoveRight size={16} /> {t('workspaceMoveTo')}</button>
                                                 {getUpdateUrl(script) && <button className="btn-secondary" onClick={() => handleCheckUpdate(script)}>{t('checkForUpdatesTooltip')}</button>}
                                                 <button className="btn-secondary mobile-delete" onClick={() => handleDeleteScript(script)}>{t('deleteTooltip')}</button>
                                             </div>
@@ -536,9 +544,28 @@ const Scripts = () => {
                                 );
                             })}
                         </div>
+                        </>}
                     </div>
                 )}
             </div>
+
+            {movingScript && <div className="modal-overlay" onClick={() => setMovingScript(null)}>
+                <section className="modal-content scripts-move-dialog" role="dialog" aria-modal="true" aria-label={t('workspaceMoveTo')} onClick={event => event.stopPropagation()}>
+                    <h3>{t('workspaceMoveTo')}: {movingScript.name}</h3>
+                    <nav className="scripts-breadcrumbs" aria-label={t('workspaceFolders')}>
+                        <button onClick={() => setMoveDestination('')}>{t('workspaceRoot')}</button>
+                        {moveDestination.split('/').filter(Boolean).map((part, index, parts) => <span key={index} className="scripts-crumb"><ChevronRight size={14} /><button onClick={() => setMoveDestination(parts.slice(0, index + 1).join('/'))}>{part}</button></span>)}
+                    </nav>
+                    <div className="scripts-move-list">
+                        {moveDestination && <button onClick={() => setMoveDestination(moveDestination.split('/').slice(0, -1).join('/'))}><ArrowLeft size={18} /> {t('workspaceParentFolder')}</button>}
+                        {childFolders(moveDestination).map(folder => <button key={folder} onClick={() => setMoveDestination(folder)}><Folder size={18} /> {folder.split('/').at(-1)} <ChevronRight size={16} /></button>)}
+                    </div>
+                    <div className="scripts-move-actions">
+                        <button className="btn-secondary" onClick={() => setMovingScript(null)}>{t('workspaceCancel')}</button>
+                        <button className="btn-primary" disabled={(movingScript.folderPath || '') === moveDestination} onClick={() => void moveScript(movingScript, moveDestination)}>{t('workspaceMoveHere')}</button>
+                    </div>
+                </section>
+            </div>}
 
             {selectedScriptIds.size > 0 && (
                 <div className="bulk-actions">

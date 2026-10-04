@@ -49,6 +49,7 @@ test('Backup and Restore Logic', async () => {
     // Scripts list is also in iframe
     const scriptsFrame = newPage.frameLocator('iframe');
     await expect.poll(async () => scriptsFrame.getByText('Restored Script').first().isVisible()).toBe(true);
+    await scriptsFrame.locator('.scripts-more-menu summary').click();
     await expect.poll(async () => scriptsFrame.getByRole('button', { name: /History|履歴/ }).isVisible()).toBe(true);
 });
 
@@ -64,9 +65,15 @@ test('Folder move, external edit, and individual history restore', async () => {
     const scripts = page.frameLocator('iframe');
     await expect.poll(async () => scripts.getByText('Restored Script').first().isVisible()).toBe(true);
 
-    await scripts.getByRole('textbox', { name: /Folder name|フォルダー名/ }).fill('Tools');
     await scripts.getByRole('button', { name: /Create folder|フォルダーを作成/ }).click();
-    await scripts.getByLabel(/Restored Script (folder|のフォルダー)/).first().selectOption('Tools');
+    await scripts.getByRole('textbox', { name: /Folder name|フォルダー名/ }).fill('Tools');
+    await scripts.locator('.scripts-folder-tools').getByRole('button', { name: /Create folder|フォルダーを作成/ }).click();
+    await scripts.locator('.scripts-folder-open').filter({ hasText: 'Tools' }).click();
+    await expect.poll(async () => scripts.locator('.scripts-breadcrumbs [aria-current="page"]').innerText()).toBe('Tools');
+    await scripts.locator('.scripts-parent-row').click();
+    await scripts.getByRole('row').filter({ hasText: 'Restored Script' }).getByRole('button', { name: /Move|移動/ }).click();
+    await scripts.locator('.scripts-move-list').getByRole('button', { name: /Tools/ }).click();
+    await scripts.getByRole('button', { name: /Move here|ここへ移動/ }).click();
     await expect.poll(async () => page.evaluate(async () => {
         const root = (window as unknown as { __mockBackupDirectoryHandle: FileSystemDirectoryHandle }).__mockBackupDirectoryHandle;
         const directory = await (await root.getDirectoryHandle('scripts')).getDirectoryHandle('Tools');
@@ -87,6 +94,7 @@ test('Folder move, external edit, and individual history restore', async () => {
         return (data.scripts as { code: string }[])[0]?.code.includes('console.log(2)');
     })).toBe(true);
 
+    await scripts.locator('.scripts-more-menu summary').click();
     await scripts.getByRole('button', { name: /History|履歴/ }).click();
     const history = page.frameLocator('iframe');
     await history.getByRole('region', { name: /History list|履歴一覧/ }).locator('button').last().click();

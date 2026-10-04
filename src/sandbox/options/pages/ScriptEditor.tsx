@@ -36,13 +36,16 @@ const ScriptEditor = () => {
     const [code, setCode] = useState<string>('');
     const [name, setName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
-    const [isSaved, setIsSaved] = useState(false); // Success state
+    const [savedCode, setSavedCode] = useState<string | null>(null);
+    const saveInProgress = useRef(false);
 
     // New script specific state
     const [newScriptId] = useState(() => crypto.randomUUID());
     const [showTools, setShowTools] = useState(false);
     const viewRef = useRef<EditorView | null>(null);
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
+    const [editorFocused, setEditorFocused] = useState(false);
+    const [visibleViewportTop, setVisibleViewportTop] = useState(0);
     const [canUndo, setCanUndo] = useState(false);
     const [canRedo, setCanRedo] = useState(false);
     const [pasteDialogOpen, setPasteDialogOpen] = useState(!!location.state?.openPaste);
@@ -66,6 +69,26 @@ const ScriptEditor = () => {
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
+    useEffect(() => {
+        if (!isMobile) return;
+        const ownViewport = window.visualViewport;
+        const updatePosition = () => setVisibleViewportTop(value => Math.max(value, ownViewport?.pageTop || 0, window.scrollY));
+        const receiveHostViewport = (event: MessageEvent) => {
+            if (event.source !== window.parent || event.data?.type !== 'HOST_VIEWPORT') return;
+            setVisibleViewportTop(Math.max(0, Number(event.data.top) || 0, ownViewport?.pageTop || 0, window.scrollY));
+        };
+        updatePosition();
+        ownViewport?.addEventListener('scroll', updatePosition);
+        ownViewport?.addEventListener('resize', updatePosition);
+        window.addEventListener('scroll', updatePosition);
+        window.addEventListener('message', receiveHostViewport);
+        return () => {
+            ownViewport?.removeEventListener('scroll', updatePosition);
+            ownViewport?.removeEventListener('resize', updatePosition);
+            window.removeEventListener('scroll', updatePosition);
+            window.removeEventListener('message', receiveHostViewport);
+        };
+    }, [isMobile]);
 
     // Mobile Sidebar State
     const [isMobileInfoOpen, setIsMobileInfoOpen] = useState(false);
@@ -99,11 +122,13 @@ const ScriptEditor = () => {
 `;
                 setCode(template);
                 setName('New Script');
+                setSavedCode(null);
                 initializedRef.current = true;
             } else if (scriptFromContext) {
                 // Initialize existing script
                 setCode(scriptFromContext.code);
                 setName(scriptFromContext.name);
+                setSavedCode(scriptFromContext.code);
                 initializedRef.current = true;
             }
         }
@@ -117,14 +142,16 @@ const ScriptEditor = () => {
             // but here we obey the same component.
             setCode(scriptFromContext.code);
             setName(scriptFromContext.name);
+            setSavedCode(scriptFromContext.code);
         }
     }, [scriptFromContext, id, isNew]);
 
 
-    const lastSavedCode = isNew ? '' : (scriptFromContext?.lastSavedCode || '');
-    const isDirty = code !== lastSavedCode;
+    const isDirty = savedCode === null || code !== savedCode;
 
     const handleSave = useCallback(async () => {
+        if (saveInProgress.current || !isDirty) return;
+        saveInProgress.current = true;
         setIsSaving(true);
         try {
             const currentCode = code;
@@ -150,13 +177,9 @@ const ScriptEditor = () => {
             };
 
             await saveScript(updatedScript);
+            setSavedCode(currentCode);
             setName(updatedScript.name);
             setCodeBeforePaste(null);
-
-            setIsSaved(true);
-            setTimeout(() => {
-                setIsSaved(false);
-            }, 2000);
 
             if (isNew) {
                 // Navigate to the edit URL for the new script so we are no longer in "new" mode
@@ -168,9 +191,10 @@ const ScriptEditor = () => {
             console.error("Failed to save", e);
             showGenericModal('error', t('editorSaveFailed'), (e as Error).message);
         } finally {
+            saveInProgress.current = false;
             setIsSaving(false);
         }
-    }, [code, scriptFromContext, saveScript, showGenericModal, t, isNew, newScriptId, navigate, location.state]);
+    }, [code, isDirty, scriptFromContext, saveScript, showGenericModal, t, isNew, newScriptId, navigate, location.state]);
 
     const handleDelete = () => {
         if (isNew) {
@@ -214,7 +238,6 @@ const ScriptEditor = () => {
         setCodeBeforePaste(code);
         setCode(nextCode);
         setName(parseMetadata(nextCode).name || name);
-        setIsSaved(false);
     };
 
     const handleRestoreCode = () => {
@@ -502,7 +525,7 @@ const ScriptEditor = () => {
 
             <main className="main-content">
                 <header className="editor-header">
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div className="editor-navigation">
                         {/* Mobile Back Button */}
                         <button
                             className="icon-btn"
@@ -675,25 +698,25 @@ const ScriptEditor = () => {
                             )}
 
                             <button
-                                className="btn-primary"
+                                className={`btn-primary editor-save-button ${!isDirty && !isSaving ? 'is-saved' : ''}`}
                                 onClick={handleSave}
-                                disabled={isSaving || (!isDirty && !isSaved)}
-                                style={{
-                                    minWidth: '90px',
-                                    justifyContent: 'center',
-                                    backgroundColor: isSaved ? 'var(--success-color, #10b981)' : undefined,
-                                    borderColor: isSaved ? 'var(--success-color, #10b981)' : undefined
-                                }}
+                                disabled={isSaving || !isDirty}
+                                aria-label={t(isSaving ? 'editorBtnSaving' : isDirty ? 'editorBtnSave' : 'editorSaved')}
                             >
-                                {isSaved ? <Check size={16} /> : isSaving ? <Loader size={16} className="icon-spin" /> : <Save size={16} />}
-                                <span>{t('editorBtnSave')}</span>
+                                {isSaving ? <Loader size={17} className="icon-spin" /> : isDirty ? <Save size={17} /> : <Check size={17} />}
+                                <span>{t(isSaving ? 'editorBtnSaving' : isDirty ? 'editorBtnSave' : 'editorSaved')}</span>
                             </button>
                         </div>
                     </div>
                 </header>
+                <span className="sr-only" role="status">{t(isSaving ? 'editorBtnSaving' : isDirty ? 'editorUnsaved' : 'editorSaved')}</span>
+                {isMobile && editorFocused && (isDirty || isSaving) && <button className="btn-primary editor-floating-save" style={{ top: visibleViewportTop + 8 }} onClick={handleSave} disabled={isSaving}>
+                    {isSaving ? <Loader size={17} className="icon-spin" /> : <Save size={17} />}
+                    {t(isSaving ? 'editorBtnSaving' : 'editorBtnSave')}
+                </button>}
                 {copyNotice && <div className="editor-copy-notice" role="status">{copyNotice}</div>}
 
-                <div className="monaco-wrapper" style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
+                <div className="monaco-wrapper" onFocusCapture={() => setEditorFocused(true)} style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
 
                     {/* CodeMirror Editor */}
                     <div style={{ height: '100%', overflow: 'hidden', fontSize: '14px' }}>

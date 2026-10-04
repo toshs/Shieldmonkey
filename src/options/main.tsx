@@ -19,6 +19,22 @@ iframe.style.height = '100%';
 iframe.style.border = 'none';
 document.body.appendChild(iframe);
 
+// Android can pan the host viewport above the keyboard while the editor lives
+// in a sandboxed iframe. Share only the visible top edge with the editor.
+const forwardViewport = () => {
+    const visibleTop = Math.max(
+        0,
+        window.visualViewport?.pageTop || 0,
+        window.scrollY,
+        -iframe.getBoundingClientRect().top,
+    );
+    iframe.contentWindow?.postMessage({ type: 'HOST_VIEWPORT', top: visibleTop }, '*');
+};
+iframe.addEventListener('load', forwardViewport);
+window.visualViewport?.addEventListener('resize', forwardViewport);
+window.visualViewport?.addEventListener('scroll', forwardViewport);
+window.addEventListener('scroll', forwardViewport);
+
 // Sync hash changes from Host to Iframe
 window.addEventListener('hashchange', () => {
     // Only forward if it's different
