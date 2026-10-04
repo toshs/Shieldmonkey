@@ -84,3 +84,22 @@ test('Options page - Install, Save, and Delete User Script', async () => {
 
     await expect.poll(async () => scriptRow.isVisible()).toBe(false);
 });
+
+test('Mobile editor keeps one save button when the viewport moves above the keyboard', async () => {
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/new'));
+    const frame = page.frameLocator('iframe');
+    const header = await frame.locator('.editor-header').boundingBox();
+    const save = await frame.locator('.editor-save-button').boundingBox();
+    expect(header?.height).toBeLessThanOrEqual(60);
+    expect((save?.x || 0) + (save?.width || 0)).toBeLessThanOrEqual(320);
+    await frame.locator('.cm-content').click();
+
+    await expect.poll(async () => frame.getByRole('button', { name: /^Save$/ }).count()).toBe(1);
+    await page.evaluate(() => {
+        document.querySelector('iframe')?.contentWindow?.postMessage({ type: 'HOST_VIEWPORT', top: 120 }, '*');
+    });
+    await expect.poll(async () => frame.locator('.editor-floating-save').isVisible()).toBe(true);
+    expect(await frame.locator('.editor-save-button').count()).toBe(0);
+    expect(await frame.getByRole('button', { name: /^Save$/ }).count()).toBe(1);
+});

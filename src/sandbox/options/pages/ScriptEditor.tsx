@@ -148,6 +148,7 @@ const ScriptEditor = () => {
 
 
     const isDirty = savedCode === null || code !== savedCode;
+    const showFloatingSave = isMobile && editorFocused && visibleViewportTop > 32;
 
     const handleSave = useCallback(async () => {
         if (saveInProgress.current || !isDirty) return;
@@ -697,7 +698,7 @@ const ScriptEditor = () => {
                                 </>
                             )}
 
-                            <button
+                            {!showFloatingSave && <button
                                 className={`btn-primary editor-save-button ${!isDirty && !isSaving ? 'is-saved' : ''}`}
                                 onClick={handleSave}
                                 disabled={isSaving || !isDirty}
@@ -705,14 +706,14 @@ const ScriptEditor = () => {
                             >
                                 {isSaving ? <Loader size={17} className="icon-spin" /> : isDirty ? <Save size={17} /> : <Check size={17} />}
                                 <span>{t(isSaving ? 'editorBtnSaving' : isDirty ? 'editorBtnSave' : 'editorSaved')}</span>
-                            </button>
+                            </button>}
                         </div>
                     </div>
                 </header>
                 <span className="sr-only" role="status">{t(isSaving ? 'editorBtnSaving' : isDirty ? 'editorUnsaved' : 'editorSaved')}</span>
-                {isMobile && editorFocused && (isDirty || isSaving) && <button className="btn-primary editor-floating-save" style={{ top: visibleViewportTop + 8 }} onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? <Loader size={17} className="icon-spin" /> : <Save size={17} />}
-                    {t(isSaving ? 'editorBtnSaving' : 'editorBtnSave')}
+                {showFloatingSave && <button className={`btn-primary editor-floating-save ${!isDirty && !isSaving ? 'is-saved' : ''}`} style={{ top: visibleViewportTop + 8 }} onClick={handleSave} disabled={isSaving || !isDirty}>
+                    {isSaving ? <Loader size={17} className="icon-spin" /> : isDirty ? <Save size={17} /> : <Check size={17} />}
+                    {t(isSaving ? 'editorBtnSaving' : isDirty ? 'editorBtnSave' : 'editorSaved')}
                 </button>}
                 {copyNotice && <div className="editor-copy-notice" role="status">{copyNotice}</div>}
 

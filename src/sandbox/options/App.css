@@ -555,7 +555,8 @@ th.col-actions {
     gap: 12px;
 }
 .editor-save-button { min-width: 120px; min-height: 42px; justify-content: center; }
-.editor-save-button.is-saved:disabled { background: color-mix(in srgb, #10b981 16%, var(--surface-bg)); color: #10b981; opacity: 1; }
+.editor-save-button.is-saved:disabled,
+.editor-floating-save.is-saved:disabled { background: color-mix(in srgb, #10b981 16%, var(--surface-bg)); color: #10b981; opacity: 1; }
 .editor-floating-save { display: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
@@ -838,24 +839,29 @@ th.col-actions {
     }
 
     .editor-header {
-        height: auto;
-        min-height: 60px;
-        padding: 8px 12px;
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
-        gap: 8px;
+        height: 56px;
+        min-height: 56px;
+        padding: 4px 10px;
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 4px;
     }
 
     .editor-header .script-info-header {
         display: flex !important;
-        grid-column: 2;
+        flex: 1 1 auto !important;
         min-width: 0;
         padding-left: 0 !important;
     }
-    .editor-navigation { display: flex; align-items: center; }
-    .editor-actions { grid-column: 1 / -1; justify-content: flex-end; }
-    .editor-actions > div { flex: 1; justify-content: space-between; }
-    .editor-save-button { min-width: 136px; min-height: 44px; margin-left: auto; }
+    .editor-header .script-info-header > span { display: none; }
+    .editor-header .script-name-input { font-size: 0.95rem; padding: 0 2px; }
+    .editor-navigation { display: flex; align-items: center; flex: none; gap: 2px; }
+    .editor-navigation > button { width: 36px; height: 36px; padding: 6px !important; margin-right: 0 !important; }
+    .editor-actions { flex: none; min-width: 0; }
+    .editor-actions > div { gap: 4px !important; }
+    .editor-actions > div > .btn-secondary { width: 38px; height: 38px; padding: 7px; justify-content: center; }
+    .editor-actions > div > .btn-secondary span { display: none; }
+    .editor-save-button { min-width: 0; min-height: 40px; padding: 6px 9px; gap: 4px; margin-left: 0; }
     .editor-floating-save { display: inline-flex; position: fixed; right: 12px; z-index: 80; min-height: 44px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55); }
 
 
