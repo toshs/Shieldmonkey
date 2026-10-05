@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useBlocker } from 'react-router-dom';
 import CodeMirror from '@uiw/react-codemirror';
 
 import { javascript, scopeCompletionSource } from '@codemirror/lang-javascript';
@@ -20,6 +20,19 @@ import { useI18n } from '../../context/I18nContext';
 import { copyText } from '../../../utils/clipboard';
 import PasteScriptDialog from '../components/PasteScriptDialog';
 
+function defaultMatchPattern(search: string): string {
+    const raw = new URLSearchParams(search).get('match');
+    if (raw) {
+        try {
+            const url = new URL(raw);
+            if (url.protocol === 'http:' || url.protocol === 'https:') {
+                return `${url.protocol}//${url.hostname}/*`;
+            }
+        } catch { /* Ignore malformed popup URLs. */ }
+    }
+    return '*://*/*';
+}
+
 const ScriptEditor = () => {
     const { id } = useParams<{ id: string }>();
     const isNew = !id || id === 'new';
@@ -34,6 +47,7 @@ const ScriptEditor = () => {
 
     // Initial state setup
     const [code, setCode] = useState<string>('');
+    const [baselineCode, setBaselineCode] = useState('');
     const [name, setName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [isSaved, setIsSaved] = useState(false); // Success state
@@ -49,6 +63,8 @@ const ScriptEditor = () => {
     const [codeBeforePaste, setCodeBeforePaste] = useState<string | null>(null);
     const [copyNotice, setCopyNotice] = useState('');
     const toolbarRef = useRef<HTMLDivElement>(null);
+    const allowNavigationRef = useRef(false);
+    const promptedLocationRef = useRef<string | null>(null);
 
     // Close tools when clicking outside
     useEffect(() => {
@@ -79,8 +95,7 @@ const ScriptEditor = () => {
         if (!initializedRef.current) {
             if (isNew) {
                 // Initialize new script
-                const params = new URLSearchParams(window.location.search);
-                const matchUrl = params.get('match') || 'http://*/*';
+                const matchUrl = defaultMatchPattern(window.location.search);
 
                 const template = `// ==UserScript==
 // @name        New Script
@@ -98,31 +113,39 @@ const ScriptEditor = () => {
 })();
 `;
                 setCode(template);
+                setBaselineCode(template);
                 setName('New Script');
                 initializedRef.current = true;
             } else if (scriptFromContext) {
                 // Initialize existing script
                 setCode(scriptFromContext.code);
+                setBaselineCode(scriptFromContext.code);
                 setName(scriptFromContext.name);
                 initializedRef.current = true;
             }
         }
     }, [scriptFromContext, isNew]);
 
-    // For existing scripts, if we change IDs (renaming? no), or just switching scripts
+    const isDirty = initializedRef.current && code !== baselineCode;
+    const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+        isDirty && !allowNavigationRef.current && currentLocation.pathname !== nextLocation.pathname
+    );
+
     useEffect(() => {
-        if (!isNew && scriptFromContext && scriptFromContext.id !== id) {
-            // ID changed in URL but we might need to reset if we haven't? 
-            // Actually, the key prop on Route usually handles component reset, 
-            // but here we obey the same component.
-            setCode(scriptFromContext.code);
-            setName(scriptFromContext.name);
+        if (blocker.state !== 'blocked') {
+            promptedLocationRef.current = null;
+            return;
         }
-    }, [scriptFromContext, id, isNew]);
-
-
-    const lastSavedCode = isNew ? '' : (scriptFromContext?.lastSavedCode || '');
-    const isDirty = code !== lastSavedCode;
+        const destination = blocker.location.key;
+        if (promptedLocationRef.current === destination) return;
+        promptedLocationRef.current = destination;
+        // The host may already have moved via browser back/forward. Restore its
+        // address until the user confirms that the editor can be left.
+        window.parent.postMessage({ type: 'URL_CHANGED', hash: '#' + location.pathname + location.search + location.hash }, '*');
+        showGenericModal('confirm', t('unsavedChangesTitle'), t('unsavedChangesMsg'), () => {
+            blocker.proceed();
+        }, undefined, undefined, () => blocker.reset());
+    }, [blocker, location.pathname, location.search, location.hash, showGenericModal, t]);
 
     const handleSave = useCallback(async () => {
         setIsSaving(true);
@@ -149,6 +172,7 @@ const ScriptEditor = () => {
 
             await saveScript(updatedScript);
             setName(updatedScript.name);
+            setBaselineCode(currentCode);
             setCodeBeforePaste(null);
 
             setIsSaved(true);
@@ -159,6 +183,7 @@ const ScriptEditor = () => {
             if (isNew) {
                 // Navigate to the edit URL for the new script so we are no longer in "new" mode
                 // Replace: true so we don't go back to /new
+                allowNavigationRef.current = true;
                 navigate(`/options/scripts/${updatedScript.id}`, { replace: true });
             }
 
@@ -178,6 +203,7 @@ const ScriptEditor = () => {
         if (!scriptFromContext) return;
         showGenericModal('confirm', t('editorConfirmDeleteTitle'), t('editorConfirmDeleteMsg'), async () => {
             await deleteScript(scriptFromContext.id);
+            allowNavigationRef.current = true;
             navigate('/options/scripts');
         });
     };
@@ -270,16 +296,8 @@ const ScriptEditor = () => {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [isDirty]);
 
-    // Block navigation if dirty using a custom check since React Router v6 doesn't have usePrompt/useBlocker stable yet in all versions
-    // But since we are using useNavigate() for our own buttons:
     const handleBack = () => {
-        if (isDirty) {
-            showGenericModal('confirm', t('unsavedChangesTitle') || 'Unsaved Changes', t('unsavedChangesMsg') || 'You have unsaved changes. Are you sure you want to leave?', () => {
-                navigate('/options/scripts');
-            });
-        } else {
-            navigate('/options/scripts');
-        }
+        navigate('/options/scripts');
     };
 
     // Theme handling for CodeMirror
@@ -317,7 +335,7 @@ const ScriptEditor = () => {
 
 
     return (
-        <div className="app-container">
+        <div className="app-container script-editor-page">
             {pasteDialogOpen && <PasteScriptDialog onApply={handleApplyPastedCode} onClose={() => setPasteDialogOpen(false)} />}
             {/* Mobile Overlay */}
             {isMobileInfoOpen && (
@@ -675,7 +693,7 @@ const ScriptEditor = () => {
                             <button
                                 className="btn-primary"
                                 onClick={handleSave}
-                                disabled={isSaving || (!isDirty && !isSaved)}
+                                disabled={isSaving || (!isNew && !isDirty && !isSaved)}
                                 style={{
                                     minWidth: '90px',
                                     justifyContent: 'center',

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { HashRouter, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
+import { createHashRouter, RouterProvider, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import PopupApp from './popup/App';
 
 const OptionsApp = lazy(() => import('./options/App'));
@@ -14,13 +14,13 @@ function RedirectToOptions() {
 // Removed HashSync as we simplify the routing approach to avoid the location API limits
 
 function HashSync() {
-    const { pathname } = useLocation();
+    const { pathname, search, hash } = useLocation();
     const navigate = useNavigate();
 
     useEffect(() => {
-        const fullPath = '#' + pathname;
+        const fullPath = '#' + pathname + search + hash;
         window.parent.postMessage({ type: 'URL_CHANGED', hash: fullPath }, '*');
-    }, [pathname]);
+    }, [pathname, search, hash]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -28,7 +28,7 @@ function HashSync() {
                 const targetHash = event.data.path;
                 const targetPath = targetHash.startsWith('#') ? targetHash.slice(1) : targetHash;
 
-                if (pathname !== targetPath) {
+                if (pathname + search + hash !== targetPath) {
                     // Use replace to prevent blowing up the history stack
                     navigate(targetPath, { replace: true });
                 }
@@ -36,22 +36,28 @@ function HashSync() {
         };
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [navigate, pathname]);
+    }, [navigate, pathname, search, hash]);
 
     return null;
 }
 
-function SandboxApp() {
+function SandboxRoutes() {
     return (
-        <HashRouter>
+        <>
             <Routes>
                 <Route path="/popup/*" element={<PopupApp />} />
                 <Route path="/options/*" element={<Suspense fallback={null}><OptionsApp /></Suspense>} />
                 <Route path="*" element={<RedirectToOptions />} />
             </Routes>
             <HashSync />
-        </HashRouter>
+        </>
     );
+}
+
+const router = createHashRouter([{ path: '/*', element: <SandboxRoutes /> }]);
+
+function SandboxApp() {
+    return <RouterProvider router={router} />;
 }
 
 export default SandboxApp;

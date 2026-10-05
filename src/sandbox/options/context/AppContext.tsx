@@ -107,9 +107,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     const toggleScript = async (script: Script, enabled: boolean) => {
-        // Optimistic upate
+        // Restore the visible state if the browser rejects registration.
         setScripts(prev => prev.map(s => s.id === script.id ? { ...s, enabled } : s));
-        await bridge.call('TOGGLE_SCRIPT', { scriptId: script.id, enabled });
+        try {
+            await bridge.call('TOGGLE_SCRIPT', { scriptId: script.id, enabled });
+        } catch (error) {
+            setScripts(prev => prev.map(s => s.id === script.id ? { ...s, enabled: script.enabled } : s));
+            throw error;
+        }
     };
 
     return (
@@ -129,5 +134,4 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         </AppContext.Provider>
     );
 };
-
 

@@ -189,7 +189,7 @@ export function createMockFileSystemHandle(initialData?: { name: string; content
     }) : [{
         id: 'restored-script-default',
         name: 'Restored Script',
-        code: '// restored',
+        code: '// ==UserScript==\n// @name Restored Script\n// @match https://example.com/*\n// ==/UserScript==\n',
         enabled: true,
         grantedPermissions: []
     }];
@@ -206,42 +206,42 @@ export function createMockFileSystemHandle(initialData?: { name: string; content
     (() => {
         const mockBackupData = ${mockBackupDataJson};
 
-        const mockHandle = {
-            kind: 'directory',
-            name: 'mock-backup-dir',
-            getFileHandle: async (name, options) => ({
-                kind: 'file',
-                name: name,
-                createWritable: async () => ({
-                    write: async (content) => {
-                        console.log('[MOCK] Writing to ' + name);
-                        window._lastWrittenFile = { name, content };
-                    },
-                    close: async () => {}
-                }),
-                getFile: async () => new Blob([JSON.stringify(mockBackupData)], { type: 'application/json' })
-            }),
-            getDirectoryHandle: async (name, options) => ({
+        const makeDirectory = (name) => {
+            const files = new Map();
+            const directories = new Map();
+            return {
                 kind: 'directory',
-                name: name,
-                entries: async function* () {},
-                removeEntry: async () => {},
-                getFileHandle: async (fileName, opts) => ({
-                    kind: 'file',
-                    name: fileName,
-                    createWritable: async () => ({
-                        write: async () => {},
-                        close: async () => {}
-                    }),
-                    getFile: async () => new Blob([JSON.stringify(mockBackupData)], { type: 'application/json' })
-                })
-            }),
-            queryPermission: async () => 'granted',
-            requestPermission: async () => 'granted',
-            values: async function* () {
-                yield { kind: 'file', name: 'shieldmonkey_dump.json' };
-            }
+                name,
+                files,
+                getFileHandle: async (fileName, options) => {
+                    if (!files.has(fileName) && !options?.create) throw new DOMException('Missing file', 'NotFoundError');
+                    return {
+                        kind: 'file',
+                        name: fileName,
+                        createWritable: async () => {
+                            let content = '';
+                            return {
+                                write: async (value) => { content = value; },
+                                close: async () => { files.set(fileName, content); }
+                            };
+                        },
+                        getFile: async () => new Blob([files.get(fileName) || ''], { type: 'application/json' })
+                    };
+                },
+                getDirectoryHandle: async (childName, options) => {
+                    if (!directories.has(childName)) {
+                        if (!options?.create) throw new DOMException('Missing directory', 'NotFoundError');
+                        directories.set(childName, makeDirectory(childName));
+                    }
+                    return directories.get(childName);
+                },
+                removeEntry: async (fileName) => { files.delete(fileName); },
+                queryPermission: async () => 'granted',
+                requestPermission: async () => 'granted'
+            };
         };
+        const mockHandle = makeDirectory('mock-backup-dir');
+        mockHandle.files.set('shieldmonkey_dump.json', JSON.stringify(mockBackupData));
 
         window.showDirectoryPicker = async () => {
             console.log('[MOCK] showDirectoryPicker called');
@@ -335,7 +335,7 @@ export async function installScriptFromPath(page: Page, extensionId: string, scr
     await dropdownBtn.waitFor({ state: 'visible' });
     await dropdownBtn.click();
 
-    const selectBtn = frame.getByRole('button', { name: /Select Directory & Restore/i });
+    const selectBtn = frame.getByRole('button', { name: /^Restore$/i });
     await selectBtn.waitFor({ state: 'visible' });
     await selectBtn.click();
 
@@ -345,7 +345,7 @@ export async function installScriptFromPath(page: Page, extensionId: string, scr
     // Note: Modal might be in a Portal? If so, where is it rendered?
     // In React App, usually at document.body or a specific root.
     // If it is in the iframe, frame locator works.
-    const confirmBtn = modal.getByRole('button', { name: /OK/i });
+    const confirmBtn = modal.getByRole('button', { name: /^Restore$/i });
     await confirmBtn.click();
 
     // 5. Wait for success modal
@@ -363,14 +363,8 @@ export async function installScriptFromPath(page: Page, extensionId: string, scr
     // Let's assume the "Confirm" modal disappears and a new "Success" modal appears.
     // Or the same modal updates.
 
-    await successModal.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
-        console.log("Success modal not found, maybe restore was too fast or failed?");
-    });
-
-    const okBtn = successModal.getByRole('button', { name: /OK/i });
-    if (await okBtn.isVisible()) {
-        await okBtn.click();
-    }
+    await successModal.waitFor({ state: 'visible', timeout: 5000 });
+    await successModal.getByRole('button', { name: /OK/i }).click();
 
     // 6. Verification: Check if script is in list
     // navigate to scripts page? No, let's just wait a bit.

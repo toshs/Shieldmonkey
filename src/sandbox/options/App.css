@@ -350,6 +350,16 @@ button.mobile-toggle-btn,
 
 .mobile-auto-backup > div { min-width: 0; }
 .mobile-auto-backup small { display: block; margin-top: 8px; color: var(--text-secondary); line-height: 1.5; }
+.restore-preview { min-width: 0; }
+.restore-preview p { margin: 0 0 12px; overflow-wrap: anywhere; }
+.restore-preview-counts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
+.restore-preview-counts span { padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; }
+.restore-preview fieldset { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; }
+.restore-preview label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.restore-preview input { width: 18px; height: 18px; }
+.restore-preview .restore-preview-note { margin: 12px 0 0; color: var(--text-secondary); font-size: 0.85rem; }
+.restore-preview-list { margin-bottom: 16px; font-size: 0.9rem; }
+.restore-preview-list ul { margin: 6px 0 0; padding-left: 20px; max-height: 128px; overflow: auto; overflow-wrap: anywhere; }
 
 .script-table {
   width: 100%;
@@ -746,6 +756,10 @@ th.col-actions {
 
     .main-content {
         padding-bottom: 70px; /* Space for bottom nav */
+    }
+
+    .script-editor-page > .main-content {
+        padding-bottom: 0;
     }
 
     .content-scroll {

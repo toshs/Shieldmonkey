@@ -2,7 +2,7 @@ import React, { createContext } from 'react';
 import { type ModalType } from '../Modal';
 
 export interface ModalContextType {
-    showModal: (type: ModalType, title: string, message: React.ReactNode, onConfirm?: () => void, confirmLabel?: string, cancelLabel?: string) => void;
+    showModal: (type: ModalType, title: string, message: React.ReactNode, onConfirm?: () => void, confirmLabel?: string, cancelLabel?: string, onCancel?: () => void) => void;
     closeModal: () => void;
 }
 

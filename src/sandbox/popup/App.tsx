@@ -85,7 +85,12 @@ function App() {
 
   const toggleScript = async (id: string, checked: boolean) => {
     setActiveScripts(prev => prev.map(s => s.id === id ? { ...s, enabled: checked } : s));
-    await bridge.call('TOGGLE_SCRIPT', { scriptId: id, enabled: checked });
+    try {
+      await bridge.call('TOGGLE_SCRIPT', { scriptId: id, enabled: checked });
+    } catch (error) {
+      setActiveScripts(prev => prev.map(s => s.id === id ? { ...s, enabled: !checked } : s));
+      console.error('Failed to toggle script', error);
+    }
   };
 
   const deleteScript = async (id: string, name: string) => {

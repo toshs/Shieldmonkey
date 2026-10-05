@@ -1,5 +1,4 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 // Import only the languages we need - NO, we remove Monaco completely
 import './App.css';
 
@@ -14,36 +13,15 @@ import Help from './pages/Help';
 import PermissionHelp from './pages/PermissionHelp';
 import Install from './pages/Install';
 
-// Helper component to sync hash with parent
-function HashSync() {
-  const { hash } = useLocation();
-
-  useEffect(() => {
-    // Notify parent of hash change
-    window.parent.postMessage({ type: 'URL_CHANGED', hash }, '*');
-  }, [hash]);
-
-  useEffect(() => {
-    // Listen for navigation requests from parent (browser back/forward)
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data && event.data.type === 'NAVIGATE' && event.data.path) {
-        if (window.location.hash !== event.data.path) {
-          window.location.hash = event.data.path;
-        }
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
-
-  return null;
+function EditorRoute() {
+  const { id } = useParams<{ id: string }>();
+  return <ScriptEditor key={id || 'new'} />;
 }
 
 function App() {
   return (
     <AppProvider>
       <ModalProvider>
-        <HashSync />
         <Routes>
           <Route path="install" element={<Install />} />
           <Route path="permission-help" element={
@@ -59,8 +37,8 @@ function App() {
             <Route path="settings" element={<Settings />} />
             <Route path="help" element={<Help />} />
           </Route>
-          <Route path="scripts/:id" element={<ScriptEditor />} />
-          <Route path="new" element={<ScriptEditor />} />
+          <Route path="scripts/:id" element={<EditorRoute />} />
+          <Route path="new" element={<EditorRoute />} />
         </Routes>
       </ModalProvider>
     </AppProvider>

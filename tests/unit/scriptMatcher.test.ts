@@ -57,4 +57,31 @@ describe('isScriptMatchingUrl', () => {
         expect(isScriptMatchingUrl(code, 'https://google.com/')).toBe(true);
         expect(isScriptMatchingUrl(code, 'https://example.com/foo')).toBe(false);
     });
+
+    it('matches a URL with a port, query, and wildcard subdomain', () => {
+        const code = `// ==UserScript==
+// @match *://*.example.com/path*
+// ==/UserScript==`;
+        expect(isScriptMatchingUrl(code, 'https://example.com:8443/path?q=1')).toBe(true);
+        expect(isScriptMatchingUrl(code, 'http://sub.example.com:3000/path')).toBe(true);
+        expect(isScriptMatchingUrl(code, 'https://badexample.com/path')).toBe(false);
+        expect(isScriptMatchingUrl(code, 'ftp://example.com/path')).toBe(false);
+    });
+
+    it('matches localhost with a port and applies exclusions', () => {
+        const code = `// ==UserScript==
+// @match http://localhost/*
+// @exclude http://localhost/private/*
+// ==/UserScript==`;
+        expect(isScriptMatchingUrl(code, 'http://localhost:5173/public/')).toBe(true);
+        expect(isScriptMatchingUrl(code, 'http://localhost:5173/private/a')).toBe(false);
+    });
+
+    it('matches a path and query without treating a fragment as part of the URL', () => {
+        const code = `// ==UserScript==
+// @match https://example.com/app?mode=*
+// ==/UserScript==`;
+        expect(isScriptMatchingUrl(code, 'https://example.com/app?mode=edit#section')).toBe(true);
+        expect(isScriptMatchingUrl(code, 'https://example.com/app?other=edit')).toBe(false);
+    });
 });

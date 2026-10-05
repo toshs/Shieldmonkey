@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Save, FolderInput, Clock, Check, AlertCircle, RotateCcw, Sun, Moon, Monitor, Upload, Download } from 'lucide-react';
 import { useApp } from '../context/useApp';
 import { useModal } from '../context/useModal';
-import { performBackupLegacy, performRestoreLegacy } from '../../../utils/backupManager';
+import { performBackupLegacy, performRestoreLegacy, planRestore, sameScript, serializeBackup, type RestorePlan } from '../../../utils/backupManager';
+import type { Script } from '../types';
 import { useI18n } from '../../context/I18nContext';
 import { isFileSystemSupported } from '../../../utils/browserPolyfill';
 import { bridge } from '../../bridge/client';
@@ -15,6 +16,7 @@ const Settings = () => {
     // Local state for backup UI
     const [backupDirName, setBackupDirName] = useState<string | null>(null);
     const [lastBackupTime, setLastBackupTime] = useState<string | null>(null);
+    const [lastBackupError, setLastBackupError] = useState<string | null>(null);
     const [isBackupLoading, setIsBackupLoading] = useState(false);
     const [backupStatus, setBackupStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [backupMessage, setBackupMessage] = useState<string>('');
@@ -28,6 +30,7 @@ const Settings = () => {
     const [fsSupported, setFsSupported] = useState(true);
     const [appVersion, setAppVersion] = useState<string>('');
     const restoreInputRef = useRef<HTMLInputElement>(null);
+    const restoreModeRef = useRef<'merge' | 'replace'>('merge');
 
     useEffect(() => {
         // Check if FS supported (Host always supports it if Chrome/Edge, but we can check via bridge or just assume based on response)
@@ -45,6 +48,7 @@ const Settings = () => {
             try {
                 const res = await bridge.call('GET_SETTINGS');
                 if (res.lastBackupTime) setLastBackupTime(res.lastBackupTime);
+                if (res.lastBackupError) setLastBackupError(res.lastBackupError);
                 if (res.autoBackup !== undefined) setAutoBackup(!!res.autoBackup);
 
                 const info = await bridge.call('GET_APP_INFO');
@@ -54,6 +58,12 @@ const Settings = () => {
             }
         };
         init();
+        const removeListener = bridge.onStorageChanged((changes, area) => {
+            if (area !== 'local') return;
+            if (changes.lastBackupTime) setLastBackupTime(changes.lastBackupTime.newValue ?? null);
+            if (changes.lastBackupError) setLastBackupError(changes.lastBackupError.newValue ?? null);
+        });
+        return () => { removeListener(); };
     }, []);
 
     const handleSelectBackupDir = async () => {
@@ -64,6 +74,11 @@ const Settings = () => {
             setIsBackupLoading(true);
             const name = await bridge.call('SELECT_BACKUP_DIR');
             setBackupDirName(name);
+            if (autoBackup) {
+                const latest = (await bridge.call('GET_SETTINGS')).scripts ?? scripts;
+                await bridge.call('RUN_BACKUP', { scripts: latest, version: appVersion });
+                await bridge.call('UPDATE_BACKUP_SETTINGS', { autoBackupMode: 'folder', lastBackupTime: new Date().toISOString(), lastBackupError: null });
+            }
         } catch (e) {
             // handle abort or error
             if ((e as Error).message !== 'Selection cancelled') {
@@ -87,19 +102,20 @@ const Settings = () => {
             }
             setIsBackupLoading(true);
             let count;
-            // Use current scripts from context
+            const latest = (await bridge.call('GET_SETTINGS')).scripts ?? scripts;
             if (fsSupported) {
-                count = await bridge.call('RUN_BACKUP', { scripts, version: appVersion });
+                count = await bridge.call('RUN_BACKUP', { scripts: latest, version: appVersion });
                 setBackupStatus('success');
                 setBackupMessage(t('savedScriptsMsg', [String(count)]));
             } else {
-                count = await performBackupLegacy(scripts, appVersion);
+                count = await performBackupLegacy(latest, appVersion);
                 setClassicBackupStatus('success');
                 setClassicBackupMessage(t('savedScriptsMsg', [String(count)]));
             }
             const time = new Date().toISOString();
             setLastBackupTime(time);
-            await bridge.call('UPDATE_BACKUP_SETTINGS', { lastBackupTime: time });
+            setLastBackupError(null);
+            await bridge.call('UPDATE_BACKUP_SETTINGS', { lastBackupTime: time, lastBackupError: null });
         } catch (e) {
             console.error("Backup failed", e);
             if (fsSupported) {
@@ -114,116 +130,137 @@ const Settings = () => {
         }
     };
 
-    const handleRestoreFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const sameScriptList = (a: Script[], b: Script[]) =>
+        a.length === b.length && a.every((script, index) => script.id === b[index]?.id && sameScript(script, b[index]));
 
+    const applyRestore = async (preview: RestorePlan, current: Script[], fromFolder: boolean) => {
+        const setStatus = fromFolder ? setRestoreStatus : setClassicRestoreStatus;
+        const setMessage = fromFolder ? setRestoreMessage : setClassicRestoreMessage;
+        setStatus('idle');
+        setMessage('');
+        setIsBackupLoading(true);
+        try {
+            const latest = (await bridge.call('GET_SETTINGS')).scripts ?? [];
+            if (!sameScriptList(current, latest)) throw new Error(t('restoreChangedDuringPreview'));
+            if (fromFolder) {
+                if (!preview.sourceFingerprint) throw new Error('Missing folder revision.');
+                await bridge.call('VERIFY_FOLDER_RESTORE', { sourceFingerprint: preview.sourceFingerprint });
+            }
+            const plan = planRestore(preview.backupScripts, latest, restoreModeRef.current);
+            const recoveryName = 'shieldmonkey_before_restore_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+            await bridge.call('DOWNLOAD_JSON', { data: serializeBackup(latest, appVersion), filename: recoveryName });
+            await bridge.call('RESTORE_SCRIPTS', plan.mergedScripts);
+            const warnings: string[] = [];
+            try {
+                await bridge.call('RELOAD_SCRIPTS');
+            } catch (error) {
+                warnings.push(t('restoreReloadWarning') + ' ' + (error instanceof Error ? error.message : String(error)));
+            }
+            if (fromFolder) {
+                try {
+                    await bridge.call('ACK_FOLDER_RESTORE', { sourceFingerprint: preview.sourceFingerprint! });
+                    await bridge.call('RUN_BACKUP', { scripts: plan.mergedScripts, version: appVersion, repairMissing: true });
+                    await bridge.call('UPDATE_BACKUP_SETTINGS', { lastBackupTime: new Date().toISOString(), lastBackupError: null });
+                } catch (error) {
+                    warnings.push(t('restoreSyncWarning') + ' ' + (error instanceof Error ? error.message : String(error)));
+                }
+            }
+            setStatus('success');
+            setMessage(t('restoreSuccessMsg', [String(plan.count)]));
+            showModal(warnings.length ? 'warning' : 'success', t('restoreCompleteTitle'), warnings.length
+                ? warnings.join(' ')
+                : t('restoreCompleteMsg', [String(plan.count)]));
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setStatus('error');
+            setMessage(message);
+            showModal('error', t('restoreFailedTitle'), message);
+        } finally {
+            setIsBackupLoading(false);
+        }
+    };
+
+    const showRestorePreview = (preview: RestorePlan, current: Script[], source: string, fromFolder: boolean) => {
+        restoreModeRef.current = 'merge';
+        const currentById = new Map(current.map(script => [script.id, script]));
+        const changed = preview.backupScripts.filter(script => !currentById.has(script.id) || !sameScript(currentById.get(script.id)!, script));
+        const backupIds = new Set(preview.backupScripts.map(script => script.id));
+        const localOnly = current.filter(script => !backupIds.has(script.id));
         showModal(
             'confirm',
             t('confirmRestoreTitle'),
-            t('confirmRestoreMsg', [file.name]),
-            async () => {
-                let count = 0;
-                try {
-                    setClassicRestoreStatus('idle');
-                    setClassicRestoreMessage('');
-                    setIsBackupLoading(true);
-
-                    // Pass current scripts for merging
-                    const result = await performRestoreLegacy(file, scripts);
-                    count = result.count;
-
-                    // Update scripts via bridge
-                    await bridge.call('UPDATE_SCRIPTS', result.mergedScripts);
-
-                    try {
-                        await bridge.call('RELOAD_SCRIPTS');
-                    } catch (msgError) {
-                        console.warn("Failed to notify background script of restore:", msgError);
-                    }
-
-                    setClassicRestoreStatus('success');
-                    setClassicRestoreMessage(t('restoreSuccessMsg', [String(count)]));
-                    showModal('success', t('restoreCompleteTitle'), t('restoreCompleteMsg', [String(count)]));
-                } catch (err) {
-                    console.error("Restore failed", err);
-                    setClassicRestoreStatus('error');
-                    setClassicRestoreMessage((err as Error).message);
-                    showModal('error', t('restoreFailedTitle'), (err as Error).message);
-                } finally {
-                    setIsBackupLoading(false);
-                    // Reset input
-                    if (restoreInputRef.current) restoreInputRef.current.value = '';
-                }
-            }
+            <div className="restore-preview">
+                <p>{t('restorePreviewSource')}: <strong>{source}</strong></p>
+                <div className="restore-preview-counts">
+                    <span>{t('restoreAdded')}: <strong>{preview.added}</strong></span>
+                    <span>{t('restoreUpdated')}: <strong>{preview.updated}</strong></span>
+                    <span>{t('restoreUnchanged')}: <strong>{preview.unchanged}</strong></span>
+                    <span>{t('restoreLocalOnly')}: <strong>{preview.localOnly}</strong></span>
+                </div>
+                {preview.fileEdits > 0 && <p>{t('restoreFileEdits')}: <strong>{preview.fileEdits}</strong></p>}
+                {preview.missingFiles > 0 && <p>{t('restoreMissingFiles')}: <strong>{preview.missingFiles}</strong></p>}
+                {changed.length > 0 && <div className="restore-preview-list"><strong>{t('restorePreviewChanges')}</strong><ul>{changed.slice(0, 8).map(script => <li key={script.id}>{currentById.has(script.id) ? t('restoreUpdated') : t('restoreAdded')}: {script.name}</li>)}</ul>{changed.length > 8 && <small>+{changed.length - 8}</small>}</div>}
+                {localOnly.length > 0 && <p className="restore-preview-note">{t('restorePreviewLocal')}: {localOnly.slice(0, 4).map(script => script.name).join(', ')}{localOnly.length > 4 && ' +' + (localOnly.length - 4)}</p>}
+                <fieldset>
+                    <legend>{t('restoreMode')}</legend>
+                    <label><input type="radio" name="restore-mode" defaultChecked onChange={() => { restoreModeRef.current = 'merge'; }} /> {t('restoreMerge')}</label>
+                    <label><input type="radio" name="restore-mode" onChange={() => { restoreModeRef.current = 'replace'; }} /> {t('restoreReplace')}</label>
+                </fieldset>
+                <p className="restore-preview-note">{t('restoreRecoveryNote')}</p>
+            </div>,
+            () => { void applyRestore(preview, current, fromFolder); },
+            t('btnRestore')
         );
     };
 
-    const handleManualRestore = async () => {
-        if (!fsSupported) {
-            restoreInputRef.current?.click();
-            return;
-        }
-
-        // For host-based restore, we assume the directory handles are already set in the persistent storage on host side.
-        // We trigger the restore flow. Host picks from its stored handle.
+    const handleRestoreFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        setClassicRestoreStatus('idle');
+        setIsBackupLoading(true);
         try {
-            // We need to confirm first. But we don't know the folder name if we don't fetch it first.
-            // We fetched backupDirName in useEffect.
-            if (!backupDirName) {
-                alert(t('noDirSelected'));
-                return;
-            }
+            const current = (await bridge.call('GET_SETTINGS')).scripts ?? [];
+            const preview = await performRestoreLegacy(file, current);
+            showRestorePreview(preview, current, file.name, false);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setClassicRestoreStatus('error');
+            setClassicRestoreMessage(message);
+            showModal('error', t('restoreFailedTitle'), message);
+        } finally {
+            setIsBackupLoading(false);
+        }
+    };
 
-            showModal(
-                'confirm',
-                t('confirmRestoreTitle'),
-                t('confirmRestoreMsg', [backupDirName]),
-                async () => {
-                    let count = 0;
-                    try {
-                        setRestoreStatus('idle');
-                        setRestoreMessage('');
-                        setIsBackupLoading(true);
-
-                        const result = await bridge.call('RUN_RESTORE', { scripts });
-                        count = result.count;
-
-                        await bridge.call('UPDATE_SCRIPTS', result.mergedScripts);
-
-                        try {
-                            await bridge.call('RELOAD_SCRIPTS');
-                        } catch (msgError) {
-                            console.warn("Failed to notify background script of restore:", msgError);
-                        }
-
-                        setRestoreStatus('success');
-                        setRestoreMessage(t('restoreSuccessMsg', [String(count)]));
-                        showModal('success', t('restoreCompleteTitle'), t('restoreCompleteMsg', [String(count)]));
-                    } catch (e) {
-                        console.error("Restore failed", e);
-                        setRestoreStatus('error');
-                        setRestoreMessage((e as Error).message || String(e));
-                        showModal('error', t('restoreFailedTitle'), (e as Error).message || String(e));
-                    } finally {
-                        setIsBackupLoading(false);
-                    }
-                }
-            );
-        } catch (e) {
-            console.error("Restore setup failed", e);
+    const handleManualRestore = async () => {
+        if (!backupDirName) return;
+        setRestoreStatus('idle');
+        setIsBackupLoading(true);
+        try {
+            const current = (await bridge.call('GET_SETTINGS')).scripts ?? [];
+            const preview = await bridge.call('RUN_RESTORE', { scripts: current });
+            showRestorePreview(preview, current, backupDirName, true);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setRestoreStatus('error');
+            setRestoreMessage(message);
+            showModal('error', t('restoreFailedTitle'), message);
+        } finally {
+            setIsBackupLoading(false);
         }
     };
 
     const toggleAutoBackup = async (checked: boolean) => {
         setAutoBackup(checked);
         try {
-            await bridge.call('UPDATE_BACKUP_SETTINGS', { autoBackup: checked });
+            await bridge.call('UPDATE_BACKUP_SETTINGS', { autoBackup: checked, autoBackupMode: fsSupported ? 'folder' : 'download' });
             if (checked) {
                 const settings = await bridge.call('GET_SETTINGS');
                 if (settings.lastBackupTime) setLastBackupTime(settings.lastBackupTime);
             }
         } catch (error) {
+            setAutoBackup(!checked);
             showModal('error', t('backupError'), (error as Error).message);
         }
     };
@@ -232,6 +269,7 @@ const Settings = () => {
         <div className="content-scroll">
             <div style={{ margin: '0 auto', width: '100%', maxWidth: '100%' }}>
                 <h2 className="page-title" style={{ marginBottom: '20px' }}>{t('pageTitleSettings')}</h2>
+                <input type="file" accept=".json,application/json" ref={restoreInputRef} style={{ display: 'none' }} onChange={handleRestoreFileSelected} />
 
                 {/* Status Section for Mobile (or general access) since sidebar hidden on mobile */}
                 <div style={{ marginBottom: '32px' }}>
@@ -335,6 +373,7 @@ const Settings = () => {
                                     <p style={{ margin: 0 }}>{t('autoBackupMobileDesc')}</p>
                                     <small>{t('autoBackupMobileFile')}</small>
                                     {lastBackupTime && <small>{t('lastBackupPrefix')}{new Date(lastBackupTime).toLocaleString()}</small>}
+                                    {lastBackupError && autoBackup && <small role="alert" style={{ color: '#ef4444' }}>{t('autoBackupFailed')}: {lastBackupError}</small>}
                                 </div>
                                 <label className="switch">
                                     <input type="checkbox" checked={autoBackup} onChange={event => toggleAutoBackup(event.target.checked)} aria-label={t('sectionAutoBackup')} />
@@ -347,6 +386,7 @@ const Settings = () => {
                         /* CHROMIUM / FILE SYSTEM API SUPPORTED UI */
                         <>
                             <h3 style={{ fontSize: '1rem', marginBottom: '16px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('sectionBackupRestore')}</h3>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '0 0 16px' }}>{t('backupScopeDesc')}</p>
                             <div style={{ background: 'var(--surface-bg)', borderRadius: '12px', padding: '24px', border: '1px solid var(--border-color)' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                     <div>
@@ -374,6 +414,7 @@ const Settings = () => {
                                                 <span>{t('btnSelect')}</span>
                                             </button>
                                         </div>
+                                        <p style={{ margin: '10px 0 0', color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5 }}>{t('folderLayoutDesc')}</p>
                                     </div>
 
                                     <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '8px 0' }} />
@@ -423,6 +464,12 @@ const Settings = () => {
                                                     <span>{t('lastBackupPrefix')}{new Date(lastBackupTime).toLocaleString()}</span>
                                                 </div>
                                             )}
+                                        </div>
+                                    )}
+                                    {lastBackupError && autoBackup && (
+                                        <div role="alert" style={{ color: '#ef4444', fontSize: '0.9rem' }}>
+                                            {t('autoBackupFailed')}: {lastBackupError}
+                                            <div>{t('backupConflictHelp')}</div>
                                         </div>
                                     )}
 
@@ -480,7 +527,8 @@ const Settings = () => {
                                                         setClassicBackupStatus('idle');
                                                         setClassicBackupMessage('');
                                                         setIsBackupLoading(true);
-                                                        const count = await performBackupLegacy(scripts, appVersion);
+                                                        const latest = (await bridge.call('GET_SETTINGS')).scripts ?? scripts;
+                                                        const count = await performBackupLegacy(latest, appVersion);
                                                         setClassicBackupStatus('success');
                                                         setClassicBackupMessage(t('savedScriptsMsg', [String(count)]));
                                                     } catch (e) {
@@ -551,6 +599,7 @@ const Settings = () => {
                         /* FIREFOX / LEGACY FALLBACK UI */
                         <>
                             <h3 style={{ fontSize: '1rem', marginBottom: '16px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('sectionClassicExportImport') || 'Classic Export / Import'}</h3>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '0 0 16px' }}>{t('backupScopeDesc')}</p>
                             <div style={{ background: 'var(--surface-bg)', borderRadius: '12px', padding: '0', border: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' }}>
 
                                 {/* EXPORT */}
@@ -597,13 +646,6 @@ const Settings = () => {
                                         {t('importDesc') || 'Restore scripts from a previously exported JSON file.'}
                                     </p>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <input
-                                            type="file"
-                                            accept=".json"
-                                            ref={restoreInputRef}
-                                            style={{ display: 'none' }}
-                                            onChange={handleRestoreFileSelected}
-                                        />
                                         <button
                                             className="btn-secondary"
                                             onClick={() => restoreInputRef.current?.click()}

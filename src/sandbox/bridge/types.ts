@@ -1,4 +1,5 @@
 import type { Script, Theme } from '../options/types';
+import type { RestorePlan } from '../../utils/backupManager';
 
 export interface PopupScript {
     id: string;
@@ -16,7 +17,9 @@ export interface BridgeActionMap {
             locale?: string;
             extensionEnabled?: boolean;
             lastBackupTime?: string;
+            lastBackupError?: string;
             autoBackup?: boolean;
+            autoBackupMode?: 'folder' | 'download';
         }
     };
     'GET_LOCALE': { payload?: never; response: string | undefined };
@@ -39,15 +42,18 @@ export interface BridgeActionMap {
     'START_UPDATE_FLOW': { payload: { scriptId: string }; response: void };
     'IMPORT_FILE': { payload?: never; response: Script[] };
     'IMPORT_DIRECTORY': { payload?: never; response: Script[] };
-    'UPDATE_BACKUP_SETTINGS': { payload: { autoBackup?: boolean, lastBackupTime?: string }; response: void };
+    'UPDATE_BACKUP_SETTINGS': { payload: { autoBackup?: boolean, autoBackupMode?: 'folder' | 'download', lastBackupTime?: string, lastBackupError?: string | null }; response: void };
     'GET_APP_INFO': { payload?: never; response: { version: string } };
     'UPDATE_SCRIPTS': { payload: Script[]; response: void };
+    'RESTORE_SCRIPTS': { payload: Script[]; response: void };
     'GET_PENDING_INSTALL': { payload: { id: string }; response: { url: string; content: string; referrer?: string } | undefined };
     'CLEAR_PENDING_INSTALL': { payload: { id: string }; response: void };
     'SELECT_BACKUP_DIR': { payload?: never; response: string | null };
     'GET_BACKUP_DIR_NAME': { payload?: never; response: string | null };
-    'RUN_BACKUP': { payload: { scripts: Script[], version: string }; response: number };
-    'RUN_RESTORE': { payload: { scripts: Script[] }; response: { count: number, mergedScripts: Script[] } };
+    'RUN_BACKUP': { payload: { scripts: Script[], version: string, repairMissing?: boolean }; response: number };
+    'RUN_RESTORE': { payload: { scripts: Script[] }; response: RestorePlan };
+    'VERIFY_FOLDER_RESTORE': { payload: { sourceFingerprint: string }; response: void };
+    'ACK_FOLDER_RESTORE': { payload: { sourceFingerprint: string }; response: void };
     'CHECK_USER_SCRIPTS_PERMISSION': { payload?: never; response: boolean };
     'REQUEST_USER_SCRIPTS_PERMISSION': { payload?: never; response: boolean };
     'OPEN_EXTENSION_SETTINGS': { payload?: never; response: void };

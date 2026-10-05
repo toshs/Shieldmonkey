@@ -75,7 +75,7 @@ export function setupMessageListener() {
         }
 
         if (message.type === MessageType.RELOAD_SCRIPTS) {
-            reloadAllScripts().then(() => sendResponse({ success: true }));
+            reloadAllScripts().then(() => sendResponse({ success: true })).catch((err: unknown) => sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) }));
             return true;
         }
 

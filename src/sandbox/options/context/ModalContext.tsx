@@ -8,6 +8,7 @@ interface ModalConfig {
     title: string;
     message: React.ReactNode;
     onConfirm?: () => void;
+    onCancel?: () => void;
     confirmLabel?: string;
     cancelLabel?: string;
 }
@@ -20,16 +21,21 @@ export const ModalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         message: ''
     });
 
-    const showModal = (type: ModalType, title: string, message: React.ReactNode, onConfirm?: () => void, confirmLabel?: string, cancelLabel?: string) => {
+    const showModal = (type: ModalType, title: string, message: React.ReactNode, onConfirm?: () => void, confirmLabel?: string, cancelLabel?: string, onCancel?: () => void) => {
         const handleConfirm = () => {
             if (onConfirm) onConfirm();
             closeModal();
         };
-        setConfig({ isOpen: true, type, title, message, onConfirm: onConfirm ? handleConfirm : undefined, confirmLabel, cancelLabel });
+        setConfig({ isOpen: true, type, title, message, onConfirm: onConfirm ? handleConfirm : undefined, onCancel, confirmLabel, cancelLabel });
     };
 
     const closeModal = () => {
         setConfig(prev => ({ ...prev, isOpen: false }));
+    };
+
+    const cancelModal = () => {
+        config.onCancel?.();
+        closeModal();
     };
 
     return (
@@ -41,11 +47,10 @@ export const ModalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 title={config.title}
                 message={config.message}
                 onConfirm={config.onConfirm}
-                onClose={closeModal}
+                onClose={cancelModal}
                 confirmLabel={config.confirmLabel}
                 cancelLabel={config.cancelLabel}
             />
         </ModalContext.Provider>
     );
 };
-
