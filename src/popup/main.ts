@@ -9,7 +9,24 @@ document.head.append(stylesheet);
 
 const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 document.body.style.width = mobile ? `${Math.min(360, (screen.availWidth || screen.width || 360) - 24)}px` : '420px';
-document.body.style.height = mobile ? `${Math.min(400, screen.availHeight || screen.height || 400)}px` : '600px';
+// Action popups need an explicit content size; viewport-relative dimensions
+// can leave Android Vivaldi's popup almost invisible during initial layout.
+const preferredHeight = mobile ? 400 : 600;
+document.body.style.height = `${preferredHeight}px`;
+
+async function fitPopupHeight() {
+    try {
+        // Vivaldi does not clamp popup height below its toolbars in landscape.
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.height && tab.height > 1) {
+            document.body.style.height = `${Math.min(preferredHeight, tab.height - 1)}px`;
+        }
+    } catch {
+        // Keep the explicit preferred size when tab dimensions are unavailable.
+    }
+}
+void fitPopupHeight();
+window.addEventListener('resize', () => { void fitPopupHeight(); });
 
 const root = document.getElementById('root')!;
 const logoImage = root.querySelector<HTMLImageElement>('#popup-placeholder img') ?? document.createElement('img');
