@@ -196,35 +196,43 @@ const Scripts = () => {
             ? (b.updateDate || b.installDate || 0) - (a.updateDate || a.installDate || 0)
             : a.name.localeCompare(b.name));
     }, [scripts, selectedFolder, query, statusFilter, sortBy]);
+    const selectedVisibleIds = visibleScripts.filter(script => selectedScriptIds.has(script.id)).map(script => script.id);
 
     const handleNewScript = async () => {
         navigate('/options/new', { state: { folderPath: selectedFolder || '' } });
     };
 
     const handleBulkEnable = async () => {
-        if (selectedScriptIds.size === 0) return;
-        for (const id of selectedScriptIds) {
-            const script = scripts.find((s: Script) => s.id === id);
-            if (script) await toggleScript(script, true);
+        try {
+            for (const id of selectedVisibleIds) {
+                const script = scripts.find((s: Script) => s.id === id);
+                if (script) await toggleScript(script, true);
+            }
+        } catch (error) {
+            showModal('error', t('scriptToggleFailed'), (error as Error).message);
         }
     };
 
     const handleBulkDisable = async () => {
-        if (selectedScriptIds.size === 0) return;
-        for (const id of selectedScriptIds) {
-            const script = scripts.find((s: Script) => s.id === id);
-            if (script) await toggleScript(script, false);
+        try {
+            for (const id of selectedVisibleIds) {
+                const script = scripts.find((s: Script) => s.id === id);
+                if (script) await toggleScript(script, false);
+            }
+        } catch (error) {
+            showModal('error', t('scriptToggleFailed'), (error as Error).message);
         }
     };
 
     const handleBulkDelete = async () => {
-        if (selectedScriptIds.size === 0) return;
-        showModal('confirm', t('deleteScriptsTitle'), t('confirmDeleteMultiple', [String(selectedScriptIds.size)]), async () => {
+        if (selectedVisibleIds.length === 0) return;
+        const idsToDelete = [...selectedVisibleIds];
+        showModal('confirm', t('deleteScriptsTitle'), t('confirmDeleteMultiple', [String(idsToDelete.length)]), async () => {
             try {
-                for (const id of selectedScriptIds) {
+                for (const id of idsToDelete) {
                     await deleteScript(id);
                 }
-                setScripts((prev: Script[]) => prev.filter((s: Script) => !selectedScriptIds.has(s.id)));
+                setScripts((prev: Script[]) => prev.filter((s: Script) => !idsToDelete.includes(s.id)));
                 setSelectedScriptIds(new Set());
                 setSelectionMode(false);
             } catch (e) {
@@ -286,17 +294,19 @@ const Scripts = () => {
 
 
     const toggleScriptSelection = (id: string) => {
-        const next = new Set(selectedScriptIds);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        setSelectedScriptIds(next);
+        setSelectedScriptIds(previous => {
+            const next = new Set(previous);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
     };
 
     const toggleSelectAll = () => {
         if (visibleScripts.every((script: Script) => selectedScriptIds.has(script.id))) {
-            setSelectedScriptIds(prev => new Set([...prev].filter(id => !visibleScripts.some((script: Script) => script.id === id))));
+            setSelectedScriptIds(new Set());
         } else {
-            setSelectedScriptIds(prev => new Set([...prev, ...visibleScripts.map((script: Script) => script.id)]));
+            setSelectedScriptIds(new Set(visibleScripts.map((script: Script) => script.id)));
         }
     };
 
@@ -393,14 +403,14 @@ const Scripts = () => {
                         <input
                             type="search"
                             value={query}
-                            onChange={event => setQuery(event.target.value)}
+                            onChange={event => { setQuery(event.target.value); setSelectedScriptIds(new Set()); }}
                             placeholder={t('searchScripts')}
                             aria-label={t('searchScripts')}
                         />
                         <details className="scripts-filter-more">
                             <summary>{t('filterScripts')}</summary>
                             <div>
-                                <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} aria-label={t('filterScripts')}>
+                                <select value={statusFilter} onChange={event => { setStatusFilter(event.target.value as typeof statusFilter); setSelectedScriptIds(new Set()); }} aria-label={t('filterScripts')}>
                                     <option value="all">{t('filterAll')}</option>
                                     <option value="enabled">{t('filterEnabled')}</option>
                                     <option value="disabled">{t('filterDisabled')}</option>
@@ -456,7 +466,7 @@ const Scripts = () => {
                                                 <input type="checkbox" checked={selectedScriptIds.has(script.id)} onChange={() => toggleScriptSelection(script.id)} style={{ cursor: 'pointer' }} />
                                             </td>
                                             <td>
-                                                <ToggleSwitch checked={!!script.enabled} onChange={() => toggleScript(script, !script.enabled)} />
+                                                <ToggleSwitch checked={!!script.enabled} onChange={() => { void toggleScript(script, !script.enabled).catch(error => showModal('error', t('scriptToggleFailed'), (error as Error).message)); }} />
                                             </td>
                                             <td style={{ cursor: 'pointer', maxWidth: '300px' }} onClick={() => navigate(`/options/scripts/${script.id}`)}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
@@ -525,7 +535,7 @@ const Scripts = () => {
                                         <div className="mobile-script-card-header">
                                             {selectionMode && <input type="checkbox" checked={selectedScriptIds.has(script.id)} onChange={() => toggleScriptSelection(script.id)} aria-label={`${t('selectScript')} ${script.name}`} />}
                                             <button className="mobile-script-name" onClick={() => navigate(`/options/scripts/${script.id}`)}>{script.name}</button>
-                                            <ToggleSwitch checked={!!script.enabled} onChange={() => toggleScript(script, !script.enabled)} />
+                                            <ToggleSwitch checked={!!script.enabled} onChange={() => { void toggleScript(script, !script.enabled).catch(error => showModal('error', t('scriptToggleFailed'), (error as Error).message)); }} />
                                         </div>
                                         <div className="mobile-script-meta">
                                             {query.trim() && <span className="mobile-script-folder"><Folder size={13} aria-hidden="true" /> {script.folderPath || t('workspaceRoot')}</span>}
@@ -567,10 +577,10 @@ const Scripts = () => {
                 </section>
             </div>}
 
-            {selectedScriptIds.size > 0 && (
+            {selectedVisibleIds.length > 0 && (
                 <div className="bulk-actions">
                     <span style={{ fontSize: '0.9rem', fontWeight: 600, marginRight: '8px', color: 'var(--text-secondary)' }}>
-                        {t('selectedCount', [String(selectedScriptIds.size)])}
+                        {t('selectedCount', [String(selectedVisibleIds.length)])}
                     </span>
                     <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }}></div>
                     <button className="btn-secondary" onClick={handleBulkEnable} style={{ padding: '6px 12px', fontSize: '0.9rem' }} title="Enable Selected">

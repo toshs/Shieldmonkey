@@ -13,7 +13,7 @@ document.body.style.overflow = 'hidden';
 // Create iframe
 const iframe = document.createElement('iframe');
 const hash = window.location.hash || '#/options';
-iframe.src = chrome.runtime.getURL('src/sandbox/index.html') + hash;
+iframe.src = chrome.runtime.getURL('src/sandbox/index.html') + window.location.search + hash;
 iframe.style.width = '100%';
 iframe.style.height = '100%';
 iframe.style.border = 'none';

@@ -11,7 +11,9 @@ export interface BridgeActionMap {
             locale?: string;
             extensionEnabled?: boolean;
             lastBackupTime?: string;
+            lastBackupError?: string;
             autoBackup?: boolean;
+            autoBackupMode?: 'folder' | 'download';
         }
     };
     'GET_LOCALE': { payload?: never; response: string | undefined };
@@ -28,9 +30,10 @@ export interface BridgeActionMap {
     'START_UPDATE_FLOW': { payload: { scriptId: string }; response: void };
     'IMPORT_FILE': { payload?: never; response: Script[] };
     'IMPORT_DIRECTORY': { payload?: never; response: Script[] };
-    'UPDATE_BACKUP_SETTINGS': { payload: { autoBackup?: boolean, lastBackupTime?: string }; response: void };
+    'UPDATE_BACKUP_SETTINGS': { payload: { autoBackup?: boolean, autoBackupMode?: 'folder' | 'download', lastBackupTime?: string, lastBackupError?: string | null }; response: void };
     'GET_APP_INFO': { payload?: never; response: { version: string } };
     'UPDATE_SCRIPTS': { payload: Script[]; response: void };
+    'RESTORE_SCRIPTS': { payload: Script[]; response: void };
     'UPDATE_LIBRARY': { payload: { scripts: Script[]; folders: string[] }; response: void };
     'GET_PENDING_INSTALL': { payload: { id: string }; response: { url: string; content: string; referrer?: string } | undefined };
     'CLEAR_PENDING_INSTALL': { payload: { id: string }; response: void };

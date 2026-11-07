@@ -6,8 +6,12 @@ import {
 import { processScriptContent } from '../utils/importManager';
 import { getDirectoryHandle } from '../utils/backupStorage';
 import type { TypedBridgeMessage } from '../sandbox/bridge/types';
-import { isMobile, isUserScriptsAvailable } from '../utils/browserPolyfill';
-import type { Script } from '../sandbox/options/types';
+import { isUserScriptsAvailable } from '../utils/browserPolyfill';
+
+async function sendBackground(message: object): Promise<void> {
+    const response = await chrome.runtime.sendMessage(message) as { success?: boolean; error?: string } | undefined;
+    if (!response || response.success === false) throw new Error(response?.error || 'Background operation failed.');
+}
 
 async function downloadJson(data: string, filename: string): Promise<void> {
     const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
@@ -48,12 +52,6 @@ async function downloadJson(data: string, filename: string): Promise<void> {
     } finally {
         URL.revokeObjectURL(url);
     }
-}
-
-async function downloadMobileBackup(scripts: unknown[], version: string): Promise<void> {
-    const data = JSON.stringify({ timestamp: new Date().toISOString(), version, scripts }, null, 2);
-    const filename = `shieldmonkey_autobackup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-    await downloadJson(data, filename);
 }
 
 async function syncAfterChange(): Promise<void> {
@@ -113,23 +111,14 @@ async function handleImportDirectory() {
     }
 }
 async function triggerAutoBackup() {
-    const { autoBackup, scripts } = await chrome.storage.local.get(['autoBackup', 'scripts']);
-    const version = chrome.runtime.getManifest().version;
-    const scriptsToBackup = (Array.isArray(scripts) ? scripts as unknown[] : []).filter((script): script is Script =>
-        !!script && typeof script === 'object' && 'id' in script && 'code' in script);
     const handle = await getDirectoryHandle();
-    if (handle) {
-        if (await handle.queryPermission({ mode: 'readwrite' }) === 'granted') {
-            await handleScanWorkspace();
-            await chrome.storage.local.set({ lastBackupTime: new Date().toISOString() });
-        } else {
-            await chrome.storage.local.set({ workspaceSyncError: 'Folder access is required. Grant access in Settings.' });
-        }
-        return;
-    }
-    if (autoBackup && isMobile()) {
-        await downloadMobileBackup(scriptsToBackup, version);
+    if (!handle) return; // Download backups are serialized by the background worker.
+    if (await handle.queryPermission({ mode: 'readwrite' }) === 'granted') {
+        const result = await handleScanWorkspace();
+        if (result.conflicts.length) throw new Error('Resolve workspace conflicts before syncing.');
         await chrome.storage.local.set({ lastBackupTime: new Date().toISOString() });
+    } else {
+        throw new Error('Folder access is required. Grant access in Settings.');
     }
 }
 
@@ -151,7 +140,7 @@ export function initBridge() {
         try {
             switch (typedData.type) {
                 case 'GET_SETTINGS': {
-                    const keys = ['scripts', 'scriptFolders', 'theme', 'extensionEnabled', 'locale', 'lastBackupTime', 'autoBackup'];
+                    const keys = ['scripts', 'scriptFolders', 'theme', 'extensionEnabled', 'locale', 'lastBackupTime', 'lastBackupError', 'autoBackup', 'autoBackupMode'];
                     result = await chrome.storage.local.get(keys);
                     break;
                 }
@@ -171,7 +160,7 @@ export function initBridge() {
                     break;
                 case 'UPDATE_BACKUP_SETTINGS':
                     await chrome.storage.local.set(typedData.payload);
-                    if (isMobile() && typedData.payload.autoBackup === true) await syncAfterChange();
+                    if (typedData.payload.autoBackup === true) await syncAfterChange();
                     break;
                 case 'GET_APP_INFO':
                     result = { version: chrome.runtime.getManifest().version };
@@ -180,17 +169,21 @@ export function initBridge() {
                     await chrome.storage.local.set({ scripts: typedData.payload });
                     await syncAfterChange();
                     break;
+                case 'RESTORE_SCRIPTS':
+                    await chrome.storage.local.set({ scripts: typedData.payload.map(script => ({ ...script, token: crypto.randomUUID() })), backupRestoreMarker: crypto.randomUUID() });
+                    await syncAfterChange();
+                    break;
                 case 'UPDATE_LIBRARY':
                     await chrome.storage.local.set({ scripts: typedData.payload.scripts, scriptFolders: typedData.payload.folders });
                     await syncAfterChange();
                     break;
                 case 'TOGGLE_SCRIPT':
                     // We need to forward this to background
-                    await chrome.runtime.sendMessage({ type: 'TOGGLE_SCRIPT', scriptId: typedData.payload.scriptId, enabled: typedData.payload.enabled });
+                    await sendBackground({ type: 'TOGGLE_SCRIPT', scriptId: typedData.payload.scriptId, enabled: typedData.payload.enabled });
                     await syncAfterChange();
                     break;
                 case 'DELETE_SCRIPT':
-                    await chrome.runtime.sendMessage({ type: 'DELETE_SCRIPT', scriptId: typedData.payload.scriptId });
+                    await sendBackground({ type: 'DELETE_SCRIPT', scriptId: typedData.payload.scriptId });
                     await syncAfterChange();
                     break;
                 case 'SAVE_SCRIPT':
@@ -201,7 +194,7 @@ export function initBridge() {
                     await syncAfterChange();
                     break;
                 case 'RELOAD_SCRIPTS':
-                    await chrome.runtime.sendMessage({ type: 'RELOAD_SCRIPTS' });
+                    await sendBackground({ type: 'RELOAD_SCRIPTS' });
                     break;
                 case 'OPEN_DASHBOARD':
                     chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html' + (typedData.payload?.path || '')), active: true });

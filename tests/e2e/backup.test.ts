@@ -41,8 +41,12 @@ test('Backup and Restore Logic', async () => {
 
     const confirmBtn = modal.getByRole('button', { name: /OK/i });
     await confirmBtn.click();
+    await expect.poll(async () => modal.getByText(/Successfully restored 1 scripts/i).isVisible()).toBe(true);
+    await modal.getByRole('button', { name: /OK/i }).click();
 
-    await newPage.waitForTimeout(TIMEOUT.VERY_LONG);
+    const backupBtn = frame.getByRole('button', { name: /Backup Now/i });
+    await backupBtn.click();
+    await expect.poll(async () => frame.getByText(/Saved 1 scripts/).isVisible()).toBe(true);
 
     await newPage.goto(getExtensionUrl(extensionId, '/src/options/index.html#/scripts'));
 

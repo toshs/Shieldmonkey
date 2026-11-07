@@ -1,5 +1,5 @@
 import { parseMetadata, type Metadata } from './metadataParser';
-import { matchPattern } from './urlMatcher';
+import { matchPattern, matchScriptGlob } from './urlMatcher';
 
 /**
  * Checks if a script should run on a specific URL based on its metadata (match, include, exclude).
@@ -13,15 +13,8 @@ export function isScriptMatchingUrl(scriptCode: string, url: string): boolean {
 }
 
 export function isMetadataMatchingUrl(metadata: Metadata, url: string): boolean {
-    const includePatterns = [...metadata.match, ...metadata.include];
-    const excludePatterns = metadata.exclude;
-
-    // Check exclude first
-    if (excludePatterns && excludePatterns.some(pattern => matchPattern(pattern, url))) {
-        return false;
-    }
-
-    // Check include/match
-    const effectivePatterns = includePatterns.length > 0 ? includePatterns : ["<all_urls>"];
-    return effectivePatterns.some(pattern => matchPattern(pattern, url));
+    if (metadata.exclude.some(pattern => matchScriptGlob(pattern, url))) return false;
+    if (metadata.match.length === 0 && metadata.include.length === 0) return matchPattern('<all_urls>', url);
+    return metadata.match.some(pattern => matchPattern(pattern, url)) ||
+        metadata.include.some(pattern => matchScriptGlob(pattern, url));
 }
