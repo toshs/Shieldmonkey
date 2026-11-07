@@ -251,7 +251,6 @@ const Settings = () => {
     const handleManualRestore = async () => {
         if (!backupDirName) return;
         setRestoreStatus('idle');
-        setIsBackupLoading(true);
         try {
             // We need to confirm first. But we don't know the folder name if we don't fetch it first.
             // We fetched backupDirName in useEffect.

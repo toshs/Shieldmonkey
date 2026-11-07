@@ -57,10 +57,10 @@ We prioritize supply chain security by leveraging `pnpm` configuration and stric
 
 ### Backup and file sync
 
-- **Desktop:** Select a folder in Settings and enable automatic backup. Script changes are saved by the background worker. shieldmonkey_dump.json is the complete restore copy, scripts contains editable .user.js copies, and history holds older JSON snapshots. You can place the folder in a third party sync directory; ShieldMonkey itself does not connect to a cloud service.
-- **Mobile:** Automatic backup downloads a dated JSON file after script changes. Manual export and JSON restore are also available.
-- **Restore:** Preview added, updated, unchanged, and local-only scripts, then choose Merge or Replace. A recovery JSON of the current scripts is downloaded before applying changes. On desktop, edits to .user.js files in the backup folder can be imported back into the same script ID.
-- **Conflicts:** Automatic backup stops instead of overwriting JSON or script files changed outside ShieldMonkey. Use Restore in Settings to review those changes. Older JSON backups remain readable.
+- **Folder workspace:** Select an empty folder in Settings. Editable `.user.js` files go in `scripts/`, IDs and settings in `state.json`, and snapshots in `history/`. App saves and moves write through regardless of the automatic backup toggle.
+- **JSON backups:** Without a linked workspace, automatic backup downloads a dated JSON file after changes. Manual export and import remain available.
+- **JSON restore:** Preview added, updated, unchanged, and local-only scripts, then choose Merge or Replace. A recovery JSON is saved before applying changes. To migrate an older `shieldmonkey_dump.json`, import it as a JSON file, then select a new empty workspace folder.
+- **Conflicts and history:** When both app and file copies change, review the diff and choose a version. Restore the full library or an individual script from workspace history.
 
 Backups contain script code and enabled states. They do not include GM_setValue data or extension settings. Since backup files contain script code and permission information, review the sharing settings of the destination folder.
 History snapshots are not deleted automatically; review them as storage grows.
