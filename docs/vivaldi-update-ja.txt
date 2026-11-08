@@ -5,7 +5,10 @@ ShieldMonkey / Android Vivaldi
    名前に古いバージョン番号が入っていても、改名・移動しません。
 2. ZIP の中身を、その既存フォルダーへ上書きします。
    manifest.json が既存の manifest.json と同じ場所に来るようにします。
-3. vivaldi://extensions で、今ある ShieldMonkey の「再読み込み」を押します。
+3. manifest.json と同じ階層に _metadata フォルダーがあれば、そのフォルダーだけ削除します。
+   ZIP には含めていませんが、Vivaldi が読み込み後に生成することがあります。
+   ZIP の上書きだけでは、既存の _metadata は消えません。
+4. vivaldi://extensions で、今ある ShieldMonkey の「再読み込み」を押します。
    拡張機能を削除したり、別のフォルダーを新しく読み込んだりしません。
 
 初回のみ
@@ -18,3 +21,7 @@ ZIP を固定の場所に解凍し、manifest.json のあるフォルダーを
 ZIP の直下に manifest.json があり、バージョン付きの親フォルダーは含みません。
 ダウンロードや解凍で「(1)」などが付いても、新しいフォルダーを追加読み込みせず、
 中身を元の読み込み先へ上書きしてください。
+
+「Cannot load extension with file or directory name _metadata」と出た場合も、
+読み込み先の _metadata だけを削除し、エラー画面の「再読み込み」を押します。
+元のフォルダーの名前・場所は変えず、拡張機能自体も削除しません。

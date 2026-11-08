@@ -16,3 +16,5 @@ Android 15 / Vivaldi 8.3.4192.64 の実行中の拡張で確認しました。
 - 通常版・Vivaldi版ビルド、TypeScript、ESLint、既存単体テスト44件を確認。
 
 配布 ZIP は毎回 `Shieldmonkey-vivaldi.zip` とし、直下に `manifest.json` を置きます。更新時は現在 Vivaldi が読み込んでいるフォルダーの名前・場所を変えず、中身を上書きして既存の拡張機能を再読み込みします。読み込み先の名前に旧バージョン番号が入っていても改名しません。詳しい手順は [更新手順](vivaldi-update-ja.txt) を参照してください。
+
+`_metadata` の予約名エラーが出た場合は、読み込み先の `manifest.json` と同じ階層にある `_metadata` だけを削除して再読み込みします。ZIP にはこのフォルダーを含めず、現在の拡張機能のフォルダー・IDを維持します。

@@ -110,7 +110,7 @@ In `vivaldi://extensions`, enable Developer mode and choose the `Download/Shield
 
 Run `pnpm run package:vivaldi` to create `releases/Shieldmonkey-vivaldi.zip`. The archive name stays the same across versions, with `manifest.json` at its root.
 
-**To update, overwrite the contents of the folder Vivaldi already loads, keep its name and location unchanged, and reload the existing extension.** Keep using that folder even if its name contains an older version. Do not remove the installed extension or load another folder for an update.
+**To update, overwrite the contents of the folder Vivaldi already loads, keep its name and location unchanged, and reload the existing extension.** Keep using that folder even if its name contains an older version. Before reloading, delete only an existing `_metadata` directory next to `manifest.json`. Vivaldi can generate it after loading, and extracting a new ZIP over the folder does not remove it. Do not remove the installed extension or load another folder for an update.
 
 In Settings, select an empty folder to create an editable workspace: `scripts/` contains nested `.user.js` files, `state.json` holds script IDs and settings, and `history/` contains full snapshots. An existing workspace with `state.json` can be selected and restored in Settings. A folder containing only the older `shieldmonkey_dump.json` format cannot be selected.
 
