@@ -35,3 +35,6 @@ coverage
 # Draw.io backup files
 *.drawio.bkp
 
+
+# Packaged distribution archives
+releases/
