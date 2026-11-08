@@ -18,6 +18,7 @@ def main():
     source = ROOT / 'dist-vivaldi'
     manifest = json.loads((source / 'manifest.json').read_text())
     if ('default_locale' in manifest or '__MSG_' in json.dumps(manifest)
+            or 'declarative_net_request' in manifest
             or manifest.get('action', {}).get('default_popup') != 'popup.html'):
         raise SystemExit('Run build:vivaldi before packaging.')
 

@@ -8,12 +8,15 @@ import { setupSecurityRules } from './security';
 import { setupMessageListener } from './messageHandler';
 import { setupAutoBackup } from './backup';
 
+// Runs on every worker start, including unpacked reloads and re-enabling.
+// Configure protection independently of userscript permission/registration.
+void setupSecurityRules();
+
 // Initialize userscripts environment
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("Background Service Worker v0.2.1-debug loaded");
   await reloadAllScripts().catch(error => console.error('Could not reload all scripts:', error));
   await checkUserScriptsPermission();
-  await setupSecurityRules();
 });
 
 chrome.runtime.onStartup.addListener(() => {

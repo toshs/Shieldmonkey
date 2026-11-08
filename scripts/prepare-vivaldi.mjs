@@ -28,6 +28,9 @@ writeFileSync(join(output, 'popup.html'), preparedHtml);
 
 const extensionManifestPath = join(output, 'manifest.json');
 const extensionManifest = JSON.parse(readFileSync(extensionManifestPath, 'utf8'));
+if (extensionManifest.declarative_net_request) {
+    throw new Error('Vivaldi must use dynamic rules to avoid generating _metadata');
+}
 if (extensionManifest.action?.default_popup !== 'src/popup/index.html') {
     throw new Error('Unexpected Vivaldi popup path in manifest');
 }
