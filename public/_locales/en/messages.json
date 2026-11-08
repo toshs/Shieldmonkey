@@ -356,5 +356,12 @@
     "restoreReplace": {"message": "Replace: match the backup exactly"},
     "restoreRecoveryNote": {"message": "A recovery JSON of your current scripts is downloaded before changes are applied."},
     "restoreChangedDuringPreview": {"message": "Scripts changed during the preview. Select the backup again."},
-    "scriptToggleFailed": {"message": "Could not change script status"}
+    "scriptToggleFailed": {"message": "Could not change script status"},
+  "mobileImport": {"message": "Import"},
+  "mobileRefresh": {"message": "Refresh"},
+  "mobileUpdate": {"message": "Update"},
+  "enabled": {"message": "Enabled"},
+  "disabled": {"message": "Disabled"},
+  "mobileNewScript": {"message": "New script"},
+  "mobileSelect": {"message": "Select"}
 }

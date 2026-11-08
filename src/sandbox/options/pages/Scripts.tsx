@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste, Folder, FolderPlus, History, Pencil, MoreHorizontal, ChevronRight, ArrowLeft, MoveRight } from 'lucide-react';
+import { Play, Pause, Trash2, FileUp, FolderUp, Plus, Terminal, RefreshCw, ClipboardPaste, Folder, FolderPlus, History, Pencil, ListChecks, X, ChevronRight, ArrowLeft, MoveRight } from 'lucide-react';
 import { useApp } from '../context/useApp';
 import { useModal } from '../context/useModal';
 import ToggleSwitch from '../components/ToggleSwitch';
@@ -325,29 +325,34 @@ const Scripts = () => {
     return (
         <div className="content-scroll scripts-page">
             <div className="script-table-container scripts-layout">
-                <div className="page-header scripts-header">
-                    <h2 className="page-title">{t('myScripts', [String(scripts.length)])}</h2>
-                    <button className="btn-primary scripts-new-button" onClick={handleNewScript}><Plus size={16} /> {t('newScript')}</button>
-                </div>
+                <div className="scripts-topbar">
+                    <div className="page-header scripts-header">
+                        <h2 className="page-title">{t('myScripts', [String(scripts.length)])}</h2>
+                        {scripts.length > 0 && <button className="btn-secondary mobile-selection-toggle" aria-label={selectionMode ? t('workspaceCancel') : t('mobileSelect')} aria-pressed={selectionMode} onClick={() => { setSelectionMode(value => !value); setSelectedScriptIds(new Set()); }}>
+                            {selectionMode ? <X size={17} /> : <ListChecks size={17} />}
+                            {selectionMode ? t('workspaceCancel') : t('mobileSelect')}
+                        </button>}
+                        <button className="btn-primary scripts-new-button desktop-only" onClick={handleNewScript}><Plus size={18} /> {t('newScript')}</button>
+                    </div>
 
-                <div className="scripts-quick-actions">
-                    <button className="btn-secondary" onClick={() => navigate('/options/new', { state: { openPaste: true, folderPath: selectedFolder || '' } })}>
-                        <ClipboardPaste size={16} /> <span className="desktop-label">{t('createFromPaste')}</span><span className="mobile-label">{t('pasteCode')}</span>
-                    </button>
-                    {workspaceLinked && <button className="btn-secondary" onClick={() => void scanWorkspace()} disabled={scanning} aria-label={scanning ? t('workspaceScanning') : t('workspaceRefresh')}>
-                        <RefreshCw size={15} /> <span className="mobile-hidden-label">{scanning ? t('workspaceScanning') : t('workspaceRefresh')}</span>
-                    </button>}
-                    <details className="scripts-more-menu">
-                        <summary aria-label={t('moreActions')}><MoreHorizontal size={18} /> <span className="mobile-hidden-label">{t('moreActions')}</span></summary>
-                        <div className="scripts-more-content">
-                            <button className="btn-secondary" onClick={handleImportFile}><FileUp size={16} /> {t('importFile')}</button>
-                            {!isMobile() && <button className="btn-secondary" onClick={handleImportFolder}><FolderUp size={16} /> {t('importFolder')}</button>}
-                            {workspaceLinked && <button className="btn-secondary" onClick={() => navigate('/options/history')}><History size={16} /> {t('workspaceHistory')}</button>}
-                            {scripts.length > 0 && <button className="btn-secondary mobile-selection-toggle" onClick={event => { setSelectionMode(value => !value); setSelectedScriptIds(new Set()); event.currentTarget.closest('details')?.removeAttribute('open'); }}>
-                                {selectionMode ? t('workspaceCancel') : t('selectScripts')}
-                            </button>}
+                    <div className="scripts-quick-actions">
+                        <div className="scripts-create-actions">
+                            <button className="btn-primary scripts-new-button mobile-only" onClick={handleNewScript}><Plus size={20} /> {t('mobileNewScript')}</button>
+                            <button className="btn-secondary scripts-paste-button" onClick={() => navigate('/options/new', { state: { openPaste: true, folderPath: selectedFolder || '' } })}>
+                                <ClipboardPaste size={18} /> <span className="desktop-label">{t('createFromPaste')}</span><span className="mobile-label">{t('pasteCode')}</span>
+                            </button>
+                            <button className="btn-secondary" onClick={handleImportFile}><FileUp size={17} /><span className="desktop-label">{t('importFile')}</span><span className="mobile-label">{t('mobileImport')}</span></button>
                         </div>
-                    </details>
+                        <div className="scripts-library-actions">
+                            {!isMobile() && <button className="btn-secondary desktop-only" onClick={handleImportFolder}><FolderUp size={17} /> {t('importFolder')}</button>}
+                            {workspaceLinked && <>
+                                <button className="btn-secondary" onClick={() => void scanWorkspace()} disabled={scanning} aria-label={scanning ? t('workspaceScanning') : t('workspaceRefresh')}>
+                                    <RefreshCw size={17} className={scanning ? 'icon-spin' : undefined} /><span className="desktop-label">{scanning ? t('workspaceScanning') : t('workspaceRefresh')}</span><span className="mobile-label">{t('mobileRefresh')}</span>
+                                </button>
+                                <button className="btn-secondary" onClick={() => navigate('/options/history')}><History size={17} /> {t('workspaceHistory')}</button>
+                            </>}
+                        </div>
+                    </div>
                 </div>
                 {workspaceNotice && <p className="scripts-workspace-notice" role="status">{workspaceNotice}</p>}
 
@@ -378,38 +383,37 @@ const Scripts = () => {
                     </section>
                 )}
 
-                <section aria-label={t('workspaceFolders')} className="scripts-folder-section">
-                    <nav className="scripts-breadcrumbs" aria-label={t('workspaceFolders')}>
-                        <button onClick={() => setSelectedFolder('')} aria-current={!selectedFolder ? 'page' : undefined}>{t('workspaceRoot')}</button>
-                        {folderCrumbs.map(crumb => <span key={crumb.path} className="scripts-crumb"><ChevronRight size={14} aria-hidden="true" /><button onClick={() => setSelectedFolder(crumb.path)} aria-current={selectedFolder === crumb.path ? 'page' : undefined}>{crumb.name}</button></span>)}
-                    </nav>
-                    <div className="scripts-folder-actions">
-                        <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); setShowFolderTools(value => !value); }}><FolderPlus size={16} /> {t('workspaceCreateFolder')}</button>
-                        {selectedFolder && <button className="btn-secondary" onClick={() => { setRenamingFolder(selectedFolder); setFolderDraft(selectedFolder.split('/').at(-1) || ''); setShowFolderTools(true); }}><Pencil size={15} /> {t('workspaceRenameFolder')}</button>}
-                    </div>
-                    {showFolderTools && <div className="scripts-folder-tools">
-                        <input value={folderDraft} onChange={event => setFolderDraft(event.target.value)}
-                            onKeyDown={event => { if (event.key === 'Enter') void (renamingFolder ? renameFolder(renamingFolder) : createFolder()); }}
-                            placeholder={t('workspaceNewFolderName')} aria-label={t('workspaceFolderName')} />
-                        <button className="btn-secondary" onClick={() => void (renamingFolder ? renameFolder(renamingFolder) : createFolder())}>
-                            <FolderPlus size={15} /> {t(renamingFolder ? 'workspaceRenameFolder' : 'workspaceCreateFolder')}
-                        </button>
-                        <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); setShowFolderTools(false); }}>{t('workspaceCancel')}</button>
-                    </div>}
-                </section>
+                <div className="scripts-organization">
+                    <section aria-label={t('workspaceFolders')} className="scripts-folder-section">
+                        <nav className="scripts-breadcrumbs" aria-label={t('workspaceFolders')}>
+                            <button onClick={() => setSelectedFolder('')} aria-current={!selectedFolder ? 'page' : undefined}><Folder size={16} aria-hidden="true" />{t('workspaceRoot')}</button>
+                            {folderCrumbs.map(crumb => <span key={crumb.path} className="scripts-crumb"><ChevronRight size={14} aria-hidden="true" /><button onClick={() => setSelectedFolder(crumb.path)} aria-current={selectedFolder === crumb.path ? 'page' : undefined}>{crumb.name}</button></span>)}
+                        </nav>
+                        <div className="scripts-folder-actions">
+                            <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); setShowFolderTools(value => !value); }}><FolderPlus size={16} /> {t('workspaceCreateFolder')}</button>
+                            {selectedFolder && <button className="btn-secondary" onClick={() => { setRenamingFolder(selectedFolder); setFolderDraft(selectedFolder.split('/').at(-1) || ''); setShowFolderTools(true); }}><Pencil size={15} /> {t('workspaceRenameFolder')}</button>}
+                        </div>
+                        {showFolderTools && <div className="scripts-folder-tools">
+                            <input value={folderDraft} onChange={event => setFolderDraft(event.target.value)}
+                                onKeyDown={event => { if (event.key === 'Enter') void (renamingFolder ? renameFolder(renamingFolder) : createFolder()); }}
+                                placeholder={t('workspaceNewFolderName')} aria-label={t('workspaceFolderName')} />
+                            <button className="btn-secondary" onClick={() => void (renamingFolder ? renameFolder(renamingFolder) : createFolder())}>
+                                <FolderPlus size={15} /> {t(renamingFolder ? 'workspaceRenameFolder' : 'workspaceCreateFolder')}
+                            </button>
+                            <button className="btn-secondary" onClick={() => { setRenamingFolder(null); setFolderDraft(''); setShowFolderTools(false); }}>{t('workspaceCancel')}</button>
+                        </div>}
+                    </section>
 
-                {(scripts.length > 1 || query || statusFilter !== 'all' || sortBy !== 'name') && (
-                    <div className="script-filters">
-                        <input
-                            type="search"
-                            value={query}
-                            onChange={event => { setQuery(event.target.value); setSelectedScriptIds(new Set()); }}
-                            placeholder={t('searchScripts')}
-                            aria-label={t('searchScripts')}
-                        />
-                        <details className="scripts-filter-more">
-                            <summary>{t('filterScripts')}</summary>
-                            <div>
+                    {(scripts.length > 0 || query || statusFilter !== 'all' || sortBy !== 'name') && (
+                        <div className="script-filters">
+                            <input
+                                type="search"
+                                value={query}
+                                onChange={event => { setQuery(event.target.value); setSelectedScriptIds(new Set()); }}
+                                placeholder={t('searchScripts')}
+                                aria-label={t('searchScripts')}
+                            />
+                            <div className="scripts-filter-controls">
                                 <select value={statusFilter} onChange={event => { setStatusFilter(event.target.value as typeof statusFilter); setSelectedScriptIds(new Set()); }} aria-label={t('filterScripts')}>
                                     <option value="all">{t('filterAll')}</option>
                                     <option value="enabled">{t('filterEnabled')}</option>
@@ -420,9 +424,10 @@ const Scripts = () => {
                                     <option value="recent">{t('sortRecent')}</option>
                                 </select>
                             </div>
-                        </details>
-                    </div>
-                )}
+                        </div>
+                    )}
+
+                </div>
 
                 {scripts.length === 0 && visibleFolders.length === 0 && !selectedFolder ? (
                     <div className="empty-dashboard" style={{ textAlign: 'center', marginTop: '4rem', color: 'var(--text-secondary)', flex: 1, overflow: 'auto' }}>
@@ -466,7 +471,7 @@ const Scripts = () => {
                                                 <input type="checkbox" checked={selectedScriptIds.has(script.id)} onChange={() => toggleScriptSelection(script.id)} style={{ cursor: 'pointer' }} />
                                             </td>
                                             <td>
-                                                <ToggleSwitch checked={!!script.enabled} onChange={() => { void toggleScript(script, !script.enabled).catch(error => showModal('error', t('scriptToggleFailed'), (error as Error).message)); }} />
+                                                <ToggleSwitch label={script.name} checked={!!script.enabled} onChange={() => { void toggleScript(script, !script.enabled).catch(error => showModal('error', t('scriptToggleFailed'), (error as Error).message)); }} />
                                             </td>
                                             <td style={{ cursor: 'pointer', maxWidth: '300px' }} onClick={() => navigate(`/options/scripts/${script.id}`)}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
@@ -535,21 +540,19 @@ const Scripts = () => {
                                         <div className="mobile-script-card-header">
                                             {selectionMode && <input type="checkbox" checked={selectedScriptIds.has(script.id)} onChange={() => toggleScriptSelection(script.id)} aria-label={`${t('selectScript')} ${script.name}`} />}
                                             <button className="mobile-script-name" onClick={() => navigate(`/options/scripts/${script.id}`)}>{script.name}</button>
-                                            <ToggleSwitch checked={!!script.enabled} onChange={() => { void toggleScript(script, !script.enabled).catch(error => showModal('error', t('scriptToggleFailed'), (error as Error).message)); }} />
+                                            <ToggleSwitch label={script.name} checked={!!script.enabled} onChange={() => { void toggleScript(script, !script.enabled).catch(error => showModal('error', t('scriptToggleFailed'), (error as Error).message)); }} />
                                         </div>
                                         <div className="mobile-script-meta">
                                             {query.trim() && <span className="mobile-script-folder"><Folder size={13} aria-hidden="true" /> {script.folderPath || t('workspaceRoot')}</span>}
                                             {metadata.namespace && <span>{metadata.namespace}</span>}
-                                            {metadata.version && <span>v{metadata.version}</span>}
+                                            {metadata.version && <span className="mobile-script-version">v{metadata.version}</span>}
                                         </div>
-                                        <details className="mobile-script-more">
-                                            <summary><MoreHorizontal size={17} /> {t('moreActions')}</summary>
-                                            <div className="mobile-script-actions">
-                                                <button className="btn-secondary" onClick={() => { setMovingScript(script); setMoveDestination(script.folderPath || ''); }}><MoveRight size={16} /> {t('workspaceMoveTo')}</button>
-                                                {getUpdateUrl(script) && <button className="btn-secondary" onClick={() => handleCheckUpdate(script)}>{t('checkForUpdatesTooltip')}</button>}
-                                                <button className="btn-secondary mobile-delete" onClick={() => handleDeleteScript(script)}>{t('deleteTooltip')}</button>
-                                            </div>
-                                        </details>
+                                        <div className={`mobile-script-actions ${getUpdateUrl(script) ? 'has-update' : ''}`}>
+                                            <button onClick={() => navigate(`/options/scripts/${script.id}`)} aria-label={`${t('editTooltip')}: ${script.name}`}><Pencil size={17} /> {t('editTooltip')}</button>
+                                            <button onClick={() => { setMovingScript(script); setMoveDestination(script.folderPath || ''); }} aria-label={`${t('workspaceMoveTo')}: ${script.name}`}><MoveRight size={17} /> {t('workspaceMoveTo')}</button>
+                                            {getUpdateUrl(script) && <button onClick={() => handleCheckUpdate(script)} aria-label={`${t('checkForUpdatesTooltip')}: ${script.name}`}><RefreshCw size={17} /> {t('mobileUpdate')}</button>}
+                                            <button className="mobile-delete" onClick={() => handleDeleteScript(script)} aria-label={`${t('deleteTooltip')}: ${script.name}`}><Trash2 size={17} /> {t('deleteTooltip')}</button>
+                                        </div>
                                     </article>
                                 );
                             })}

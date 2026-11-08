@@ -56,7 +56,7 @@ const ScriptEditor = () => {
     const [newScriptId] = useState(() => crypto.randomUUID());
     const [showTools, setShowTools] = useState(false);
     const viewRef = useRef<EditorView | null>(null);
-    const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
+    const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 900px), (pointer: coarse) and (max-width: 1200px)').matches);
     const [editorFocused, setEditorFocused] = useState(false);
     const [visibleViewportTop, setVisibleViewportTop] = useState(0);
     const [canUndo, setCanUndo] = useState(false);
@@ -80,7 +80,7 @@ const ScriptEditor = () => {
     }, [showTools]);
 
     useEffect(() => {
-        const handleResize = () => setIsMobile(window.innerWidth <= 900);
+        const handleResize = () => setIsMobile(window.matchMedia('(max-width: 900px), (pointer: coarse) and (max-width: 1200px)').matches);
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);

@@ -356,5 +356,12 @@
     "restoreReplace": {"message": "入れ替え：現在の一覧を復元元に揃える"},
     "restoreRecoveryNote": {"message": "適用前に現在のスクリプトを復旧用 JSON としてダウンロードします。"},
     "restoreChangedDuringPreview": {"message": "確認中にスクリプトが変更されました。復元元をもう一度選んでください。"},
-    "scriptToggleFailed": {"message": "スクリプトの状態を変更できませんでした"}
+    "scriptToggleFailed": {"message": "スクリプトの状態を変更できませんでした"},
+  "mobileImport": {"message": "読み込み"},
+  "mobileRefresh": {"message": "再読込"},
+  "mobileUpdate": {"message": "更新"},
+  "enabled": {"message": "有効"},
+  "disabled": {"message": "無効"},
+  "mobileNewScript": {"message": "新規作成"},
+  "mobileSelect": {"message": "選択"}
 }

@@ -3,6 +3,9 @@
 export const popupTexts: Record<'en' | 'ja', Record<string, string>> = {
     en: {
         appName: 'Shieldmonkey',
+        extensionLabel: 'Extension',
+        enabled: 'Enabled',
+        disabled: 'Disabled',
         scriptsOnThisPage: 'Scripts on this page',
         noScriptsMatching: 'No scripts matching this page.',
         createNewScript: 'Create New Script',
@@ -18,6 +21,9 @@ export const popupTexts: Record<'en' | 'ja', Record<string, string>> = {
     },
     ja: {
         appName: 'Shieldmonkey',
+        extensionLabel: '拡張機能',
+        enabled: '有効',
+        disabled: '無効',
         scriptsOnThisPage: 'このページのスクリプト',
         noScriptsMatching: 'このページにマッチするスクリプトはありません。',
         createNewScript: '新規スクリプト作成',

@@ -48,7 +48,7 @@ const Layout = () => {
                 <div style={{ marginTop: 'auto', padding: '16px', borderTop: '1px solid var(--border-color)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                         <span style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>{t('extensionLabel')}</span>
-                        <ToggleSwitch checked={extensionEnabled} onChange={toggleExtension} />
+                        <ToggleSwitch label={t('extensionLabel')} checked={extensionEnabled} onChange={toggleExtension} />
                     </div>
                     <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', textAlign: 'center' }}>
                         v{version}

@@ -1,4 +1,5 @@
 import popupCss from './App.css?inline';
+import { popupIcons } from './icons';
 import { popupTexts } from './messages';
 import { getPopupData, type PopupScript } from './data';
 import type { Theme } from '../sandbox/options/types';
@@ -8,10 +9,10 @@ stylesheet.textContent = popupCss;
 document.head.append(stylesheet);
 
 const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-document.body.style.width = mobile ? `${Math.min(360, (screen.availWidth || screen.width || 360) - 24)}px` : '420px';
+document.body.style.width = mobile ? `${Math.min(400, Math.max(280, (screen.availWidth || screen.width || 360) - 16))}px` : '420px';
 // Action popups need an explicit content size; viewport-relative dimensions
 // can leave Android Vivaldi's popup almost invisible during initial layout.
-const preferredHeight = mobile ? 400 : 600;
+let preferredHeight = mobile ? 300 : 600;
 document.body.style.height = `${preferredHeight}px`;
 
 async function fitPopupHeight() {
@@ -33,18 +34,7 @@ const logoImage = root.querySelector<HTMLImageElement>('#popup-placeholder img')
 if (!logoImage.hasAttribute('src')) logoImage.src = '/icons/icon48.png';
 logoImage.alt = '';
 logoImage.className = 'logo-img';
-const paths = {
-    settings: '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8"/><path d="M12 2l1 2.7 2.8.5 2.2-1.8 2 2-1.8 2.2.5 2.8 2.7 1v2.8l-2.7 1-.5 2.8 1.8 2.2-2 2-2.2-1.8-2.8.5-1 2.7h-2.8l-1-2.7-2.8-.5-2.2 1.8-2-2 1.8-2.2-.5-2.8-2.7-1v-2.8l2.7-1 .5-2.8L3.3 5.4l2-2 2.2 1.8 2.8-.5L11.3 2z"/>',
-    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>',
-    moon: '<path d="M20.985 12.486A9 9 0 0 1 11.514 3.015a9 9 0 1 0 9.47 9.47z"/>',
-    monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/>',
-    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8m-8 4h8"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    edit: '<path d="M12 20h9M4 16.5V20h3.5L19 8.5l-3.5-3.5L4 16.5zM14 6.5l3.5 3.5"/>',
-    refresh: '<path d="M20 11a8 8 0 0 0-14.5-4.5L4 8m0-5v5h5M4 13a8 8 0 0 0 14.5 4.5L20 16m0 5v-5h-5"/>',
-    trash: '<path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6m5 4v7m4-7v7"/>'
-} as const;
-type Icon = keyof typeof paths;
+type Icon = keyof typeof popupIcons;
 
 let theme: Theme = 'dark';
 let locale = 'system';
@@ -81,7 +71,12 @@ function icon(name: Icon, size = 20): SVGSVGElement {
     svg.setAttribute('stroke-linecap', 'round');
     svg.setAttribute('stroke-linejoin', 'round');
     svg.setAttribute('aria-hidden', 'true');
-    svg.innerHTML = paths[name];
+    svg.setAttribute('focusable', 'false');
+    for (const [tag, attributes] of popupIcons[name]) {
+        const part = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        for (const [key, value] of Object.entries(attributes)) part.setAttribute(key, String(value));
+        svg.append(part);
+    }
     return svg;
 }
 
@@ -99,6 +94,7 @@ function switchControl(checked: boolean, label: string, onChange: (value: boolea
     const wrapper = el('label', 'switch');
     const input = el('input');
     input.type = 'checkbox';
+    input.setAttribute('role', 'switch');
     input.checked = checked;
     input.setAttribute('aria-label', label);
     input.addEventListener('change', () => onChange(input.checked));
@@ -140,14 +136,16 @@ function renderRows(container: HTMLElement): void {
         leading.append(switchControl(!!script.enabled, script.name, checked => { void toggleScript(script.id, checked); }), name);
         const actions = el('div', 'script-actions');
         actions.append(iconButton('edit', t('editTooltip'), () => openDashboard(`#/options/scripts/${script.id}`)));
-        if (script.hasUpdateUrl) {
-            actions.append(iconButton('refresh', t('checkForUpdatesTooltip'), () => {
-                void sendAction('START_UPDATE_FLOW', { scriptId: script.id }).catch(console.error);
-            }));
+        if (!mobile) {
+            if (script.hasUpdateUrl) {
+                actions.append(iconButton('refresh', t('checkForUpdatesTooltip'), () => {
+                    void sendAction('START_UPDATE_FLOW', { scriptId: script.id }).catch(console.error);
+                }));
+            }
+            const remove = iconButton('trash', t('deleteTooltip'), () => { void deleteScript(script.id, script.name); });
+            remove.style.color = '#ef4444';
+            actions.append(remove);
         }
-        const remove = iconButton('trash', t('deleteTooltip'), () => { void deleteScript(script.id, script.name); });
-        remove.style.color = '#ef4444';
-        actions.append(remove);
         row.append(leading, actions);
         container.append(row);
     }
@@ -202,7 +200,7 @@ function render(): void {
     const logo = el('div', 'logo-area');
     const global = el('div', 'global-switch-container');
     global.append(switchControl(extensionEnabled, t('appName'), checked => { void toggleGlobal(checked); }));
-    logo.append(logoImage, el('h1', '', t('appName')), global);
+    logo.append(logoImage, el('h1', '', t('appName')));
     const tools = el('div', 'popup-tools');
     const themeIcon: Icon = theme === 'light' ? 'sun' : theme === 'dark' ? 'moon' : 'monitor';
     tools.append(
@@ -210,10 +208,16 @@ function render(): void {
         iconButton('settings', t('dashboardTooltip'), () => openDashboard())
     );
     header.append(logo, tools);
+    const status = el('div', 'popup-status');
+    status.append(el('span', '', t('extensionLabel')));
+    global.prepend(el('span', extensionEnabled ? 'status-enabled' : 'status-disabled', t(extensionEnabled ? 'enabled' : 'disabled')));
+    status.append(global);
     const main = el('main', 'popup-main');
     renderContent(main);
-    container.append(header, main);
+    container.append(header, status, main);
     root.replaceChildren(container);
+    if (mobile) preferredHeight = loaded ? (scripts.length ? Math.min(440, 212 + scripts.length * 72 + (scripts.length > 5 ? 48 : 0)) : 250) : 300;
+    void fitPopupHeight();
 }
 
 async function cycleTheme(): Promise<void> {

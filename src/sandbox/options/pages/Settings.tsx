@@ -353,8 +353,8 @@ const Settings = () => {
                             </p>
                         </div>
 
-                        <label className="switch" style={{ transform: 'scale(1.2)', marginRight: '8px' }}>
-                            <input type="checkbox" checked={extensionEnabled} onChange={(e) => toggleExtension(e.target.checked)} />
+                        <label className="switch">
+                            <input type="checkbox" role="switch" aria-label={t('extensionLabel')} checked={extensionEnabled} onChange={(e) => toggleExtension(e.target.checked)} />
                             <span className="slider"></span>
                         </label>
                     </div>
@@ -419,7 +419,7 @@ const Settings = () => {
                                     {lastBackupError && autoBackup && <small role="alert" style={{ color: '#ef4444' }}>{t('autoBackupFailed')}: {lastBackupError}</small>}
                                 </div>
                                 <label className="switch">
-                                    <input type="checkbox" checked={autoBackup} onChange={event => toggleAutoBackup(event.target.checked)} aria-label={t('sectionAutoBackup')} />
+                                    <input type="checkbox" role="switch" aria-label={t('sectionAutoBackup')} checked={autoBackup} onChange={event => toggleAutoBackup(event.target.checked)} />
                                     <span className="slider"></span>
                                 </label>
                             </div>
@@ -486,7 +486,7 @@ const Settings = () => {
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                             <label className="switch">
-                                                <input type="checkbox" checked={autoBackup} onChange={(e) => toggleAutoBackup(e.target.checked)} disabled={!backupDirName && !isMobile()} />
+                                                <input type="checkbox" role="switch" aria-label={t('sectionAutoBackup')} checked={autoBackup} onChange={(e) => toggleAutoBackup(e.target.checked)} disabled={!backupDirName && !isMobile()} />
                                                 <span className="slider"></span>
                                             </label>
                                         </div>

@@ -53,7 +53,6 @@ test('Backup and Restore Logic', async () => {
     // Scripts list is also in iframe
     const scriptsFrame = newPage.frameLocator('iframe');
     await expect.poll(async () => scriptsFrame.getByText('Restored Script').first().isVisible()).toBe(true);
-    await scriptsFrame.locator('.scripts-more-menu summary').click();
     await expect.poll(async () => scriptsFrame.getByRole('button', { name: /History|履歴/ }).isVisible()).toBe(true);
 });
 
@@ -98,7 +97,6 @@ test('Folder move, external edit, and individual history restore', async () => {
         return (data.scripts as { code: string }[])[0]?.code.includes('console.log(2)');
     })).toBe(true);
 
-    await scripts.locator('.scripts-more-menu summary').click();
     await scripts.getByRole('button', { name: /History|履歴/ }).click();
     const history = page.frameLocator('iframe');
     await history.getByRole('region', { name: /History list|履歴一覧/ }).locator('button').last().click();
