@@ -73,7 +73,7 @@ test('editor switches scripts and asks before discarding unsaved changes from na
     console.log('[editor-test] saw A');
     await page.getByRole('button', { name: /Back to scripts/ }).click();
     console.log('[editor-test] list');
-    await page.getByRole('row').filter({ hasText: 'Editor B' }).getByRole('button', { name: /Edit/ }).click();
+    await page.getByRole('row').filter({ hasText: 'Editor B' }).getByText('Editor B', { exact: true }).click();
     console.log('[editor-test] opened B');
     await expect.poll(async () => frame.locator('.script-name-input').innerText()).toBe('Editor B');
     expect(await frame.locator('.cm-content').innerText()).toContain('Editor B');
@@ -99,7 +99,7 @@ test('editor switches scripts and asks before discarding unsaved changes from na
     await modal.getByRole('button', { name: 'OK' }).click();
     console.log('[editor-test] confirmed', page.url());
     await expect.poll(async () => page.url()).toMatch(/#\/options\/scripts$/);
-    await page.getByRole('button', { name: /Edit/ }).first().click();
+    await page.getByRole('row').filter({ hasText: 'Editor A' }).getByText('Editor A', { exact: true }).click();
     await expect.poll(async () => frame.locator('.script-name-input').innerText()).toBe('Editor A');
     console.log('[editor-test] saw A');
     expect(await frame.locator('.cm-content').innerText()).toContain('Editor A');
