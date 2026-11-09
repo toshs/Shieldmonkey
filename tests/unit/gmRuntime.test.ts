@@ -100,6 +100,27 @@ describe('private GM runtime', () => {
         expect(context.loaded).toBe('own-secret'); expect(context.immediate).toBe(42); expect(stored[prefix()+'new']).toBe(42);
         expect(setSiteValue).not.toHaveBeenCalled(); expect(siteData).toEqual(new Map([['other','keep']]));
     });
+    it('rejects privileged and cross-origin blob destinations', async () => {
+        const {validateGMUrl} = await import('../../src/background/gmRequestHandler');
+        for (const url of ['chrome://settings', 'javascript:alert(1)', 'file:///tmp/private', 'blob:https://other.example/id']) {
+            expect(() => validateGMUrl(url, 'download', 'https://example.com')).toThrow();
+        }
+        expect(() => validateGMUrl('data:text/html,test', 'tab', 'https://example.com')).toThrow();
+        expect(validateGMUrl('blob:https://example.com/id', 'download', 'https://example.com')).toBe('blob:https://example.com/id');
+    });
+    it('reconnects after a worker-side port closes, without executing the body twice', async () => {
+        const context = vm.createContext({console,Map,Set,Promise,Object,String,Error,JSON,
+            setTimeout:(fn:()=>void,delay:number)=>{const timer=setTimeout(fn,delay);timer.unref();return timer;},clearTimeout,
+            chrome:{runtime:{connect:()=>createPort().client}},localStorage:{length:0},history:{pushState(){},replaceState(){}},
+            addEventListener(){},location:{href:'https://example.com/'},navigator:{},
+        });context.window=context;
+        await vm.runInContext(getGMAPIScript({id:'private',name:'Private',version:'1',permissions:['GM_getValue','GM_setValue'],token:'private-token'},'window.starts=(window.starts||0)+1;'),context);
+        ports[0].client.disconnect();
+        await vi.waitFor(()=>expect(ports.length).toBe(2));
+        await vi.waitFor(()=>expect(ports[1].messages.some(message=>message.type==='READY')).toBe(true));
+        await vm.runInContext('GM_setValue("after-reconnect",42)',context);
+        expect(context.starts).toBe(1);expect(stored[prefix()+'after-reconnect']).toBe(42);
+    });
     it('does not execute user code in a world without extension messaging', async () => {
         const context = vm.createContext({ console, Set, Map, JSON, chrome: {} }); context.window = context;
         await vm.runInContext(getGMAPIScript({ id:'private', name:'Private',version:'1',permissions:[],token:'private-token' }, 'window.ran = true;'), context);
