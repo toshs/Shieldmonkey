@@ -1,8 +1,10 @@
+import { assertSafeScriptBody } from '../shared/syntax';
 import gmApiImplCode from '../injected/gm_api_impl.js?raw';
 export interface GM_ScriptConfig {
     id: string; name: string; version: string; permissions: string[]; namespace?: string; description?: string; token: string;
 }
 export function getGMAPIScript(config: GM_ScriptConfig, code: string): string {
+    assertSafeScriptBody(code);
     const replacements: Record<string, string> = {
         '"__SCRIPT_NAME__"': JSON.stringify(config.name),
         '"__SCRIPT_ID__"': JSON.stringify(config.id),

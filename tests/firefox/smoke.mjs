@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { firefox } from 'playwright';
 const { connectWithMaxRetries } = await import(pathToFileURL(process.env.WEB_EXT_REMOTE_MODULE).href);
 const profile = await mkdtemp(path.join(tmpdir(), 'shieldmonkey-firefox-'));
+const addonId = 'shieldmonkey@toshs.dev';
+const uuid = randomUUID();
+// Firefox imports this documented legacy permission store on first startup.
+// It grants only the permissions requested by the test add-on, in this new,
+// disposable profile. No existing browser profile is read or modified.
+await writeFile(path.join(profile, 'extension-preferences.json'), JSON.stringify({[addonId]:{permissions:['userScripts'],origins:['<all_urls>']}}));
 const context = await firefox.launchPersistentContext(profile, { headless: true, timeout: 30000,
     args: ['-start-debugger-server', '9225'], firefoxUserPrefs: {
+        'extensions.webextensions.uuids': JSON.stringify({[addonId]:uuid}),
         'devtools.debugger.remote-enabled': true, 'devtools.debugger.prompt-connection': false,
         'devtools.chrome.enabled': true, 'extensions.htmlaboutaddons.recommendations.enabled': false, 'extensions.webextensions.userScripts.enabled': true,
     } });
@@ -15,23 +23,9 @@ let remote;
 try {
     remote = await connectWithMaxRetries({ port: 9225 });
     await remote.installTemporaryAddon(path.resolve('dist-firefox'), false);
-    // Set up the requested optional permission in this disposable browser profile.
-    const manager = context.pages().find(page => page.url() === 'about:blank') || context.pages()[0];
-    await manager.goto('about:addons', {waitUntil:'commit'});
-    await manager.evaluate(async () => {
-        const { ExtensionPermissions } = ChromeUtils.importESModule('resource://gre/modules/ExtensionPermissions.sys.mjs');
-        await ExtensionPermissions.add('shieldmonkey@toshs.dev', {permissions:['userScripts'],origins:['<all_urls>']});
-    });
-    let page;
-    for (let i = 0; i < 100; i++) {
-        page = context.pages().find(page => page.url().startsWith('moz-extension://'));
-        if (page) break;
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    assert.ok(page, 'The extension must open its permission help page on first installation.');
-    const extensionUrl = new URL(page.url());
-    const origin = extensionUrl.protocol + '//' + extensionUrl.host;
-    await page.goto(origin + '/src/options/index.html#/options/scripts');
+    const page = context.pages()[0];
+    await page.goto('moz-extension://' + uuid + '/src/options/index.html#/options/scripts');
+    assert.equal(await page.evaluate(() => chrome.permissions.contains({permissions:['userScripts']})), true, 'The disposable test profile must grant userScripts.');
     await page.locator('.scripts-page').waitFor();
     assert.equal(await page.locator('iframe').count(), 0);
     const code = `// ==UserScript==\n// @name Firefox Smoke\n// @match https://example.com/*\n// @grant GM_getValue\n// @grant GM_setValue\n// ==/UserScript==\n(async()=>{const value=GM_getValue('counter',0);document.documentElement.dataset.sm050=String(value);await GM_setValue('counter',value+1);document.documentElement.dataset.sm050Saved='yes';})();`;

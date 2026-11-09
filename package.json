@@ -29,6 +29,7 @@
     "@codemirror/view": "6.39.12",
     "@uiw/codemirror-theme-vscode": "4.25.4",
     "@uiw/react-codemirror": "4.25.4",
+    "acorn": "8.15.0",
     "idb": "8.0.3",
     "lucide-react": "0.562.0",
     "prettier": "3.8.1",
