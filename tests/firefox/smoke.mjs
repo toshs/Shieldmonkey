@@ -16,11 +16,11 @@ const site = 'http://127.0.0.1:' + server.address().port + '/';
 let driver;
 try {
     const options = new Options().setBinary(playwrightFirefox.executablePath()).setProfile(profile)
-        .addArguments('-headless','-remote-allow-system-access');
+        .addArguments('-headless');
     // System access is used only to set up the requested optional permission
     // inside this new disposable profile. Existing profiles are never used.
     driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options)
-        .setFirefoxService(new ServiceBuilder(process.env.GECKODRIVER_PATH)).build();
+        .setFirefoxService(new ServiceBuilder(process.env.GECKODRIVER_PATH).addArguments('--allow-system-access')).build();
     await driver.manage().setTimeouts({pageLoad:20000,script:15000,implicit:0});
     assert.equal(await driver.installAddon(path.resolve('dist-firefox'),true),addonId);
     await driver.setContext('chrome');
