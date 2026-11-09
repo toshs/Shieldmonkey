@@ -27,7 +27,7 @@ try {
     const optionsUrl = await driver.executeScript(async id => {
         const {ExtensionPermissions} = ChromeUtils.importESModule('resource://gre/modules/ExtensionPermissions.sys.mjs');
         const {AddonManager} = ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
-        await ExtensionPermissions.add(id,{permissions:['userScripts'],origins:['<all_urls>']});
+        await ExtensionPermissions.add(id,{permissions:['userScripts'],origins:['<all_urls>']},WebExtensionPolicy.getByID(id).extension);
         return (await AddonManager.getAddonByID(id)).optionsURL;
     },addonId);
     await driver.setContext('content');

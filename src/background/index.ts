@@ -1,5 +1,5 @@
 import { setupBadgeListeners } from './badge';
-import { setupGMListener } from './gmRequestHandler';
+import { setupGMListener, revokeGMSessions } from './gmRequestHandler';
 import { setupNavigationListener } from './navigation';
 import { checkUserScriptsPermission } from './permissions';
 import { reloadAllScripts } from './scripts';
@@ -29,6 +29,19 @@ setupGMListener();
 setupNavigationListener();
 setupMessageListener();
 setupAutoBackup();
+
+// Firefox exposes this runtime event only after its optional permission is
+// granted. Keep the management UI working before that first grant.
+chrome.permissions.onAdded.addListener(permissions => {
+  if (!permissions.permissions?.includes('userScripts')) return;
+  setupGMListener();
+  void reloadAllScripts().catch(error => console.error('Could not register scripts:', error));
+});
+chrome.permissions.onRemoved.addListener(permissions => {
+  if (!permissions.permissions?.includes('userScripts')) return;
+  revokeGMSessions();
+  setupGMListener();
+});
 
 
 // Generic notification click handler

@@ -12,9 +12,9 @@ function send(session: Session, message: GMServerMessage) { try { session.port.p
 function prefix(session: Session) { return 'gmv1:' + JSON.stringify([session.scriptId, session.origin]) + ':'; }
 async function authenticate(session: Session): Promise<Script> {
     await stateReady;
-    const data = await chrome.storage.local.get(['scripts', 'extensionEnabled']);
+    const [data, allowed] = await Promise.all([chrome.storage.local.get(['scripts', 'extensionEnabled']), chrome.permissions.contains({permissions:['userScripts']})]);
     const script = (data.scripts as Script[] | undefined)?.find(script => script.id === session.scriptId);
-    if (data.extensionEnabled === false || !script || !script.enabled || script.pendingApproval || !script.token || script.token !== session.token || !isScriptMatchingUrl(script.code, session.url)) throw new Error('Script access revoked.');
+    if (!allowed || data.extensionEnabled === false || !script || !script.enabled || script.pendingApproval || !script.token || script.token !== session.token || !isScriptMatchingUrl(script.code, session.url)) throw new Error('Script access revoked.');
     return script;
 }
 function key(value: unknown): string {
@@ -98,8 +98,7 @@ export function notifyUrlChange(tabId: number, frameId: number, url: string) {
         if (session.sender.tab?.id === tabId && session.sender.frameId === frameId) { session.url = url; send(session, { type: 'URL_CHANGED', url }); }
     }
 }
-export function setupGMListener() {
-    chrome.runtime.onUserScriptConnect.addListener(port => {
+function acceptPort(port: chrome.runtime.Port) {
         if (port.name !== GM_PORT || port.sender?.id !== chrome.runtime.id || !port.sender.url || port.sender.tab?.id === undefined) { port.disconnect(); return; }
         let url: URL;
         try { url = new URL(port.sender.url); if (!['http:', 'https:'].includes(url.protocol)) throw new Error(); } catch { port.disconnect(); return; }
@@ -151,7 +150,21 @@ export function setupGMListener() {
                 } catch (error) { send(session, { type: 'RESPONSE', id: message.id, error: error instanceof Error ? error.message : String(error) }); }
             }).catch(error => { send(session, { type: 'REVOKED', error: error instanceof Error ? error.message : String(error) }); port.disconnect(); });
         });
-    });
+}
+let connectionEvent: typeof chrome.runtime.onUserScriptConnect | undefined;
+let storageListening = false;
+export function revokeGMSessions() {
+    for (const session of sessions) { send(session, {type:'REVOKED', error:'User script permission revoked.'}); session.port.disconnect(); }
+}
+export function setupGMListener() {
+    const event = chrome.runtime.onUserScriptConnect;
+    if (connectionEvent !== event) {
+        try { connectionEvent?.removeListener(acceptPort); } catch { /* The optional permission may already be gone. */ }
+        connectionEvent = event;
+        event?.addListener(acceptPort);
+    }
+    if (storageListening) return;
+    storageListening = true;
     chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== 'local' || (!changes.scripts && !changes.extensionEnabled)) return;
         for (const session of sessions) void authenticate(session).catch(() => { send(session, { type: 'REVOKED', error: 'Script access revoked.' }); session.port.disconnect(); });

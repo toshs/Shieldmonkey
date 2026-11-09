@@ -47,6 +47,7 @@ beforeEach(async () => {
             set: vi.fn(async (values: Record<string, unknown>) => { Object.assign(stored, values); }),
             remove: vi.fn(async (keys: string | string[]) => { for (const key of typeof keys === 'string' ? [keys] : keys) delete stored[key]; }),
         } },
+        permissions: { contains: vi.fn().mockResolvedValue(true) },
         tabs: { remove: tabsRemove, create: vi.fn() }, downloads: { download: vi.fn() }, notifications: { create: vi.fn() },
     });
     const { setupGMListener } = await import('../../src/background/gmRequestHandler'); setupGMListener();
@@ -79,6 +80,22 @@ describe('private GM runtime', () => {
         port.client.postMessage({ type: 'REQUEST', id: 2, operation: 'GM_getValue', data: { key: 'secret' } });
         await vi.waitFor(() => expect(port.messages.some(message => message.id === 2)).toBe(true));
         expect(port.messages.find(message => message.id === 2)?.error).toMatch(/revoked/);
+    });
+    it('denies requests when the browser userScripts permission is revoked', async () => {
+        const port=createPort();await init(port);
+        vi.mocked(chrome.permissions.contains).mockResolvedValue(false);
+        port.client.postMessage({type:'REQUEST',id:3,operation:'GM_getValue',data:{key:'secret'}});
+        await vi.waitFor(()=>expect(port.messages.some(message=>message.id===3)).toBe(true));
+        expect(port.messages.find(message=>message.id===3)?.error).toMatch(/revoked/);
+    });
+    it('initializes safely before Firefox exposes its optional runtime event', async () => {
+        const {setupGMListener} = await import('../../src/background/gmRequestHandler');
+        const runtime = chrome.runtime as unknown as {onUserScriptConnect?:typeof chrome.runtime.onUserScriptConnect};
+        delete runtime.onUserScriptConnect;
+        expect(()=>setupGMListener()).not.toThrow();
+        runtime.onUserScriptConnect=connections as unknown as typeof chrome.runtime.onUserScriptConnect;
+        setupGMListener();
+        const port=createPort();await init(port);expect(port.messages[0].type).toBe('READY');
     });
     it('does not expose values when only key-listing was granted', async () => {
         (stored.scripts as Script[])[0].grantedPermissions = ['GM_listValues'];
