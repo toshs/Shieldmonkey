@@ -8,6 +8,7 @@ import { parseMetadata } from '../../utils/metadataParser';
 import { importFromFileLegacy, importFromDirectoryLegacy } from '../../utils/importManager';
 import { useI18n } from '../i18n/I18nContext';
 import { app } from '../../app/service';
+import { useFolderAccessRecovery } from '../hooks/useFolderAccessRecovery';
 import { isMobile } from '../../utils/browserPolyfill';
 import type { Script } from '../types';
 import type { WorkspaceConflict, WorkspaceResolution } from '../../utils/workspaceManager';
@@ -113,6 +114,8 @@ const Scripts = () => {
         didInitialScan.current = true;
         void scanWorkspace();
     }, [scanWorkspace]);
+
+    useFolderAccessRecovery(workspaceNeedsAccess ? 'prompt' : null, scanWorkspace);
 
     const reconnectWorkspace = async () => {
         setScanning(true);

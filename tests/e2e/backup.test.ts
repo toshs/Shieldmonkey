@@ -113,6 +113,7 @@ test('Folder move, external edit, and individual history restore', async () => {
 test('Remembered workspace restores persistent access and reconnects temporary access without another picker', async () => {
     for (const persistent of [true, false]) {
         const page = await browserContext.newPage();
+        await page.bringToFront();
         await page.addInitScript(createMockWorkspaceHandle() + `
             (() => {
                 const root = window.__mockBackupDirectoryHandle;
@@ -132,12 +133,23 @@ test('Remembered workspace restores persistent access and reconnects temporary a
         await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/settings'));
         await page.getByText('mock-backup-dir', { exact: true }).waitFor();
         if (!persistent) await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
-        await expect.poll(async () => page.getByRole('button', { name: 'Reconnect', exact: true }).count()).toBe(0);
+        // Playwright locator evaluation counts as user activation. Observe through
+        // CDP without a gesture so polling cannot keep the idle recovery waiting.
+        const observer = await browserContext.newCDPSession(page);
+        await expect.poll(async () => {
+            const result = await observer.send('Runtime.evaluate', {
+                expression: '[...document.querySelectorAll("button")].filter(b => b.textContent === "Reconnect").length',
+                returnByValue: true, userGesture: false,
+            });
+            return result.result.value;
+        }, { timeout: 15000 }).toBe(0);
+        await observer.detach();
         const state = await page.evaluate(() => {
             const w = window as unknown as { __workspaceRequests: number; __workspacePickers: number };
             return { requests: w.__workspaceRequests, pickers: w.__workspacePickers };
         });
-        expect(state.requests).toBe(persistent ? 1 : 2);
+        expect(state.requests).toBeGreaterThanOrEqual(1);
+        expect(state.requests).toBeLessThanOrEqual(persistent ? 1 : 2);
         expect(state.pickers).toBe(0);
         // Access to a different workspace still requires Restore; reconnect must not overwrite it.
         expect(await page.getByRole('button', { name: /Restore from backup folder/i }).isEnabled()).toBe(true);

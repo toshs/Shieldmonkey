@@ -7,6 +7,7 @@ import type { Script } from '../types';
 import { useI18n } from '../i18n/I18nContext';
 import { isMobile } from '../../utils/browserPolyfill';
 import { app } from '../../app/service';
+import { useFolderAccessRecovery } from '../hooks/useFolderAccessRecovery';
 
 const Settings = () => {
     const { theme, setTheme, extensionEnabled, toggleExtension, scripts } = useApp();
@@ -44,6 +45,8 @@ const Settings = () => {
         setWorkspaceSyncError(status.syncError);
         return status;
     }, []);
+
+    useFolderAccessRecovery(backupDirPermission, refreshBackupDirectoryStatus);
 
     useEffect(() => {
         void refreshBackupDirectoryStatus().catch(error => console.error('Failed to read backup folder:', error));
