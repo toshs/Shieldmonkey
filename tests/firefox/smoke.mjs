@@ -1,51 +1,56 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { createServer } from 'node:http';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { firefox } from 'playwright';
-const { connectWithMaxRetries } = await import(pathToFileURL(process.env.WEB_EXT_REMOTE_MODULE).href);
+import { firefox as playwrightFirefox } from 'playwright';
+const require = createRequire(import.meta.url);
+const {Builder, By} = require(process.env.SELENIUM_PACKAGE);
+const {Options, ServiceBuilder} = require(path.join(process.env.SELENIUM_PACKAGE, 'firefox.js'));
 const profile = await mkdtemp(path.join(tmpdir(), 'shieldmonkey-firefox-'));
 const addonId = 'shieldmonkey@toshs.dev';
-const uuid = randomUUID();
-// Firefox imports this documented legacy permission store on first startup.
-// It grants only the permissions requested by the test add-on, in this new,
-// disposable profile. No existing browser profile is read or modified.
-await writeFile(path.join(profile, 'extension-preferences.json'), JSON.stringify({[addonId]:{permissions:['userScripts'],origins:['<all_urls>']}}));
-const context = await firefox.launchPersistentContext(profile, { headless: true, timeout: 30000,
-    args: ['-start-debugger-server', '9225'], firefoxUserPrefs: {
-        'extensions.webextensions.uuids': JSON.stringify({[addonId]:uuid}),
-        'devtools.debugger.remote-enabled': true, 'devtools.debugger.prompt-connection': false,
-        'devtools.chrome.enabled': true, 'extensions.htmlaboutaddons.recommendations.enabled': false, 'extensions.webextensions.userScripts.enabled': true,
-    } });
-let remote;
+const server = createServer((_request, response) => {response.setHeader('Content-Type','text/html');response.end('<!doctype html><title>Firefox smoke</title><body>Test</body>');});
+await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
+const site = 'http://127.0.0.1:' + server.address().port + '/';
+let driver;
 try {
-    remote = await connectWithMaxRetries({ port: 9225 });
-    await remote.installTemporaryAddon(path.resolve('dist-firefox'), false);
-    const page = context.pages()[0];
-    await page.goto('moz-extension://' + uuid + '/src/options/index.html#/options/scripts');
-    assert.equal(await page.evaluate(() => chrome.permissions.contains({permissions:['userScripts']})), true, 'The disposable test profile must grant userScripts.');
-    await page.locator('.scripts-page').waitFor();
-    assert.equal(await page.locator('iframe').count(), 0);
-    const code = `// ==UserScript==\n// @name Firefox Smoke\n// @match https://example.com/*\n// @grant GM_getValue\n// @grant GM_setValue\n// ==/UserScript==\n(async()=>{const value=GM_getValue('counter',0);document.documentElement.dataset.sm050=String(value);await GM_setValue('counter',value+1);document.documentElement.dataset.sm050Saved='yes';})();`;
-    const response = await page.evaluate(script => chrome.runtime.sendMessage({type:'SAVE_SCRIPT', approved:true, script}), {id:'firefox-smoke',name:'Firefox Smoke',code,enabled:true});
-    assert.equal(response.success, true, response.error);
-    const configurations = await page.evaluate(() => chrome.userScripts.getWorldConfigurations());
-    assert.ok(configurations.some(world => world.worldId?.startsWith('sm-') && world.messaging));
-    assert.ok(!configurations.some(world => !world.worldId && world.messaging));
-    await context.route('https://example.com/**', route => route.fulfill({contentType:'text/html',body:'<!doctype html><title>Firefox smoke</title><body>Test</body>'}));
-    const testPage = await context.newPage();
-    await testPage.goto('https://example.com/');
-    await testPage.waitForFunction(() => document.documentElement.dataset.sm050Saved === 'yes');
-    assert.equal(await testPage.evaluate(() => document.documentElement.dataset.sm050), '0');
-    await testPage.reload();
-    await testPage.waitForFunction(() => document.documentElement.dataset.sm050Saved === 'yes');
-    assert.equal(await testPage.evaluate(() => document.documentElement.dataset.sm050), '1');
-    assert.deepEqual(await testPage.evaluate(() => ({gm:typeof window.GM,cache:Object.keys(localStorage).filter(key=>key.startsWith('sm_cache_'))})),{gm:'undefined',cache:[]});
-    const csp = await page.evaluate(async () => {try {await fetch('https://example.com/');return false;}catch{return true;}});
-    assert.equal(csp, true);
-    console.log('FIREFOX_SMOKE_PASS ' + context.browser().version());
+    const options = new Options().setBinary(playwrightFirefox.executablePath()).setProfile(profile)
+        .addArguments('-headless','--allow-system-access');
+    // System access is used only to set up the requested optional permission
+    // inside this new disposable profile. Existing profiles are never used.
+    driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options)
+        .setFirefoxService(new ServiceBuilder(process.env.GECKODRIVER_PATH)).build();
+    await driver.manage().setTimeouts({pageLoad:20000,script:15000,implicit:0});
+    assert.equal(await driver.installAddon(path.resolve('dist-firefox'),true),addonId);
+    await driver.setContext('chrome');
+    const optionsUrl = await driver.executeScript(async id => {
+        const {ExtensionPermissions} = ChromeUtils.importESModule('resource://gre/modules/ExtensionPermissions.sys.mjs');
+        const {AddonManager} = ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
+        await ExtensionPermissions.add(id,{permissions:['userScripts'],origins:['<all_urls>']});
+        return (await AddonManager.getAddonByID(id)).optionsURL;
+    },addonId);
+    await driver.setContext('content');
+    await driver.get(optionsUrl + '#/options/scripts');
+    assert.equal(await driver.executeScript(() => chrome.permissions.contains({permissions:['userScripts']})),true);
+    await driver.wait(async()=> (await driver.findElements(By.css('.scripts-page'))).length > 0,15000);
+    assert.equal((await driver.findElements(By.css('iframe'))).length,0);
+    const code = `// ==UserScript==\n// @name Firefox Smoke\n// @match http://127.0.0.1/*\n// @grant GM_getValue\n// @grant GM_setValue\n// ==/UserScript==\n(async()=>{const value=GM_getValue('counter',0);document.documentElement.dataset.sm050=String(value);await GM_setValue('counter',value+1);document.documentElement.dataset.sm050Saved='yes';})();`;
+    const response = await driver.executeScript(script=>chrome.runtime.sendMessage({type:'SAVE_SCRIPT',approved:true,script}),{id:'firefox-smoke',name:'Firefox Smoke',code,enabled:true});
+    assert.equal(response.success,true,response.error);
+    const worlds = await driver.executeScript(()=>chrome.userScripts.getWorldConfigurations());
+    assert.ok(worlds.some(world=>world.worldId?.startsWith('sm-') && world.messaging));
+    assert.ok(!worlds.some(world=>!world.worldId && world.messaging));
+    await driver.get(site);
+    await driver.wait(()=>driver.executeScript(()=>document.documentElement.dataset.sm050Saved==='yes'),15000);
+    assert.equal(await driver.executeScript(()=>document.documentElement.dataset.sm050),'0');
+    await driver.navigate().refresh();
+    await driver.wait(()=>driver.executeScript(()=>document.documentElement.dataset.sm050Saved==='yes'),15000);
+    assert.equal(await driver.executeScript(()=>document.documentElement.dataset.sm050),'1');
+    assert.deepEqual(await driver.executeScript(()=>({gm:typeof window.GM,cache:Object.keys(localStorage).filter(key=>key.startsWith('sm_cache_'))})),{gm:'undefined',cache:[]});
+    await driver.get(optionsUrl);
+    assert.equal(await driver.executeScript(async url=>{try{await fetch(url);return false;}catch{return true;}},site),true);
+    console.log('FIREFOX_SMOKE_PASS ' + (await driver.getCapabilities()).get('browserVersion'));
 } finally {
-    remote?.disconnect(); await context.close(); await rm(profile, {recursive:true,force:true});
+    await driver?.quit(); await new Promise(resolve=>server.close(resolve)); await rm(profile,{recursive:true,force:true});
 }
