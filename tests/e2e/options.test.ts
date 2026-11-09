@@ -14,7 +14,7 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-    await browserContext.close();
+    await browserContext?.close();
 });
 
 test('Options page - Install, Save, and Delete User Script', async () => {
@@ -25,7 +25,7 @@ test('Options page - Install, Save, and Delete User Script', async () => {
     const title = await page.title();
     expect(title).toMatch(/Shieldmonkey/i);
 
-    const frame = page.frameLocator('iframe');
+    const frame = page;
 
     const newScriptBtn = frame.getByRole('button', { name: /New Script/i, exact: false });
     await newScriptBtn.waitFor({ state: 'visible' });
@@ -43,6 +43,7 @@ test('Options page - Install, Save, and Delete User Script', async () => {
     const saveBtn = frame.getByRole('button', { name: /Save/i });
     await expect.poll(async () => saveBtn.isEnabled()).toBe(true);
     await saveBtn.click();
+    await page.locator('.permission-dialog').getByRole('button', { name: 'Allow', exact: true }).click();
     await expect.poll(async () => frame.getByRole('button', { name: /Saved|保存済み/ }).isDisabled()).toBe(true);
 
     // After save, it should likely navigate to /options/scripts/:id
@@ -88,7 +89,7 @@ test('Options page - Install, Save, and Delete User Script', async () => {
 test('Mobile editor keeps one save button when the viewport moves above the keyboard', async () => {
     await page.setViewportSize({ width: 320, height: 844 });
     await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/new'));
-    const frame = page.frameLocator('iframe');
+    const frame = page;
     const header = await frame.locator('.editor-header').boundingBox();
     const save = await frame.locator('.editor-save-button').boundingBox();
     expect(header?.height).toBeLessThanOrEqual(60);
@@ -96,10 +97,9 @@ test('Mobile editor keeps one save button when the viewport moves above the keyb
     await frame.locator('.cm-content').click();
 
     await expect.poll(async () => frame.getByRole('button', { name: /^Save$/ }).count()).toBe(1);
-    await page.evaluate(() => {
-        document.querySelector('iframe')?.contentWindow?.postMessage({ type: 'HOST_VIEWPORT', top: 120 }, '*');
-    });
-    await expect.poll(async () => frame.locator('.editor-floating-save').isVisible()).toBe(true);
-    expect(await frame.locator('.editor-save-button').count()).toBe(0);
-    expect(await frame.getByRole('button', { name: /^Save$/ }).count()).toBe(1);
+    await page.setViewportSize({ width: 320, height: 420 });
+    await expect.poll(async () => frame.getByRole('button', { name: /^Save$/ }).count()).toBe(1);
+    const resizedSave = await frame.getByRole('button', { name: /^Save$/ }).boundingBox();
+    expect((resizedSave?.y || 0) + (resizedSave?.height || 0)).toBeLessThanOrEqual(420);
+    expect(await frame.locator('iframe').count()).toBe(0);
 });

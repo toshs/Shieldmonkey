@@ -1,214 +1,172 @@
+import { worldIdFor } from '../shared/identity';
 import { parseMetadata } from '../utils/metadataParser';
 import { getGMAPIScript } from '../utils/scriptGenerator';
-import type { Script } from './types';
+import type { Script } from '../shared/types';
+import { protectScript, validateScript } from '../shared/policy';
 import { updateActiveTabBadge } from './badge';
-import {
-    isUserScriptsAvailable,
-    configureUserScriptsWorld,
-    getUserScripts,
-    unregisterUserScripts,
-    registerUserScripts
-} from '../utils/browserPolyfill';
+import { isUserScriptsAvailable, getUserScripts, unregisterUserScripts, registerUserScripts, browserAPI } from '../utils/browserPolyfill';
+import { stateReady } from './state';
 
-function registrationFor(script: Script): chrome.userScripts.UserScript {
+let queue: Promise<unknown> = Promise.resolve();
+function serialize<T>(work: () => Promise<T>): Promise<T> {
+    const result = queue.then(work, work); queue = result.catch(() => {}); return result;
+}
+export function runAtFor(value?: string): chrome.extensionTypes.RunAt {
+    const normalized = value?.replace(/-/g, '_');
+    if (normalized === 'document_start' || normalized === 'document_idle') return normalized;
+    return 'document_end';
+}
+export async function registrationFor(script: Script): Promise<chrome.userScripts.RegisteredUserScript> {
     const metadata = parseMetadata(script.code);
-    const matches = [...metadata.match, ...metadata.include];
+    const patterns = [...metadata.match, ...metadata.include];
+    for (const pattern of metadata.match) {
+        if (pattern !== '<all_urls>' && !/^(\*|http|https|file|ftp):\/\/[^/]*\/.*$/.test(pattern)) throw new Error('Invalid @match pattern: ' + pattern);
+    }
+    const native = patterns.every(pattern => /^(\*|http|https|file|ftp):\/\/[^/]*\/.*$/.test(pattern) || pattern === '<all_urls>');
+    const matchGlobs = metadata.match.flatMap(pattern => {
+        if (pattern === '<all_urls>') return ['*'];
+        const variants = [pattern, pattern.replace('://*.', '://')];
+        return variants.flatMap(value => [value, value.replace(/^(.*?:\/\/[^/]+)(\/.*)$/, '$1:*$2')]);
+    });
     return {
         id: script.id,
-        matches: matches.length > 0 ? matches : ['<all_urls>'],
-        excludeMatches: metadata.exclude,
-        js: [{ code: getGMAPIScript({
-            id: script.id,
-            name: script.name,
-            version: metadata.version || '1.0',
-            permissions: script.grantedPermissions || [],
-            namespace: metadata.namespace,
-            description: metadata.description,
-            token: script.token || ''
-        }) + '\n' + script.code }],
-        runAt: (metadata['run-at'] || 'document_end') as 'document_start' | 'document_end' | 'document_idle',
-        world: 'USER_SCRIPT'
+        matches: native ? (patterns.length ? patterns : ['<all_urls>']) : ['<all_urls>'],
+        ...(!native ? { includeGlobs: [...matchGlobs, ...metadata.include] } : {}),
+        js: [{ code: getGMAPIScript({ id: script.id, name: script.name, version: metadata.version || '1.0', permissions: script.grantedPermissions || [], namespace: metadata.namespace, description: metadata.description, token: script.token || '' }, script.code) }],
+        runAt: runAtFor(metadata['run-at']),
+        world: 'USER_SCRIPT', worldId: await worldIdFor(script.id),
     };
 }
-
-// The browser is the source of truth for pattern and run-at validation. A
-// harmless temporary registration also validates scripts saved while disabled.
-async function validateRegistration(script: Script): Promise<void> {
-    const probeId = `shieldmonkey-validation-${crypto.randomUUID()}`;
-    const registration = registrationFor(script);
-    try {
-        await registerUserScripts([{ ...registration, id: probeId, js: [{ code: 'void 0;' }] }]);
-    } finally {
-        await unregisterUserScripts({ ids: [probeId] }).catch(() => undefined);
+async function configureWorlds(scripts: Script[]) {
+    const api = browserAPI.userScripts;
+    if (!api?.getWorldConfigurations || !api.resetWorldConfiguration) throw new Error('This browser does not support isolated script worlds.');
+    const existing = await api.getWorldConfigurations();
+    await api.configureWorld({ messaging: false });
+    const wanted = new Set(await Promise.all(scripts.map(script => worldIdFor(script.id))));
+    for (const config of existing) {
+        if (config.worldId && !wanted.has(config.worldId)) await api.resetWorldConfiguration(config.worldId);
     }
-}
-
-async function restoreRegistration(previous: Script | undefined, wasRegistered: boolean): Promise<void> {
-    if (!previous || !wasRegistered) return;
-    try {
-        await registerUserScripts([registrationFor(previous)]);
-    } catch (error) {
-        console.error(`Could not restore registration for ${previous.id}:`, error);
-    }
-}
-
-
-export async function reloadAllScripts() {
-    const failures: string[] = [];
-    if (await isUserScriptsAvailable()) {
-        try {
-            await configureUserScriptsWorld({
-                messaging: true,
-            });
-
-            const settings = await chrome.storage.local.get(['extensionEnabled', 'scripts']);
-            const extensionEnabled = settings.extensionEnabled !== false;
-            const savedScripts = (settings.scripts || []) as Script[];
-
-            if (settings.extensionEnabled === undefined) {
-                await chrome.storage.local.set({ extensionEnabled: true });
-            }
-
-            try {
-                const existing = (await getUserScripts()) as chrome.userScripts.UserScript[];
-                const ids = existing.map(s => s.id);
-                if (ids.length > 0) {
-                    await unregisterUserScripts({ ids });
-                }
-            } catch (e) {
-                console.warn("Failed to unregister existing scripts", e);
-                failures.push(e instanceof Error ? e.message : String(e));
-            }
-
-            if (extensionEnabled && savedScripts.length > 0) {
-                for (const script of savedScripts) {
-                    if (!script.enabled) continue;
-
-                    try {
-                        await registerUserScripts([registrationFor(script)]);
-                    } catch (e) {
-                        console.error(`Failed to register script ${script.name}:`, e);
-                        failures.push(`${script.name}: ${e instanceof Error ? e.message : String(e)}`);
-                    }
-                }
-            }
-
-        } catch (err) {
-            console.error("Failed to initialize user scripts:", err);
-            failures.push(err instanceof Error ? err.message : String(err));
+    for (const worldId of wanted) {
+        if (!existing.some(config => config.worldId === worldId && config.messaging === true)) {
+            await api.configureWorld({ worldId, messaging: true });
         }
-    } else {
-        failures.push('chrome.userScripts API is not available');
     }
-
-    await updateActiveTabBadge();
-    if (failures.length > 0) throw new Error(failures.join('\n'));
 }
-
-export async function handleToggleGlobal(enabled: boolean) {
-    await chrome.storage.local.set({ extensionEnabled: enabled });
-    await reloadAllScripts();
+async function validateRegistration(script: Script) {
+    const id = `shieldmonkey-validation-${crypto.randomUUID()}`;
+    try { await registerUserScripts([{ ...await registrationFor(script), id, js: [{ code: 'void 0;' }] }]); }
+    finally { await unregisterUserScripts({ ids: [id] }).catch(() => {}); }
 }
-
-export async function handleSaveScript(script: Script) {
-    if (!await isUserScriptsAvailable()) throw new Error("API unavailable");
-
-    const data = await chrome.storage.local.get(['scripts', 'extensionEnabled']);
-    const scripts: Script[] = Array.isArray(data.scripts) ? [...data.scripts] : [];
-    const index = scripts.findIndex(s => s.id === script.id);
-    const previous = index === -1 ? undefined : scripts[index];
-    const updated: Script = { ...script };
-    const now = Date.now();
-
-    updated.token = crypto.randomUUID();
-
-    if (previous) {
-        updated.installDate = previous.installDate || now;
-        updated.updateDate = now;
-        if (updated.enabled === undefined) updated.enabled = previous.enabled;
-        if (!updated.grantedPermissions) updated.grantedPermissions = previous.grantedPermissions || [];
-        if (!updated.sourceUrl && previous.sourceUrl) updated.sourceUrl = previous.sourceUrl;
-        if (!updated.referrerUrl && previous.referrerUrl) updated.referrerUrl = previous.referrerUrl;
-        if (updated.folderPath === undefined) updated.folderPath = previous.folderPath;
-        if (updated.filePath === undefined) updated.filePath = previous.filePath;
-    } else {
-        updated.installDate = now;
-        updated.updateDate = now;
-        if (updated.enabled === undefined) updated.enabled = true;
-        if (!updated.grantedPermissions) updated.grantedPermissions = [];
+function validateLibrary(values: unknown): asserts values is Script[] {
+    if (!Array.isArray(values)) throw new Error('Invalid library.');
+    const ids = new Set<string>(), identities = new Set<string>();
+    for (const script of values) {
+        validateScript(script);
+        const metadata = parseMetadata(script.code);
+        const identity = `${metadata.namespace || ''}\0${metadata.name}`;
+        if (ids.has(script.id) || identities.has(identity)) throw new Error('Duplicate script ID or name/namespace.');
+        ids.add(script.id); identities.add(identity);
     }
-
-    const metadata = parseMetadata(updated.code);
-
-    if (metadata.name) updated.name = metadata.name;
-    updated.namespace = metadata.namespace || '';
-    const duplicate = scripts.find(s => s.id !== updated.id &&
-        parseMetadata(s.code).name === metadata.name &&
-        (parseMetadata(s.code).namespace || '') === updated.namespace);
-    if (duplicate) throw new Error(`A script with @name "${metadata.name}" and the same @namespace already exists.`);
-    if (metadata.grant && Array.isArray(metadata.grant)) updated.grantedPermissions = metadata.grant;
-
-    const wasRegistered = (await getUserScripts({ ids: [updated.id] })).length > 0;
-    const shouldRegister = updated.enabled !== false && data.extensionEnabled !== false;
-    if (!shouldRegister) await validateRegistration(updated);
-
+}
+async function commitLibrary(scripts: Script[], previous: Script[], fields: Record<string, unknown> = {}) {
+    validateLibrary(scripts);
+    const available = await isUserScriptsAvailable();
+    const settings = await chrome.storage.local.get('extensionEnabled');
+    const active = settings.extensionEnabled !== false ? scripts.filter(script => script.enabled && !script.pendingApproval) : [];
+    if (!available && active.length) throw new Error('User scripts are unavailable. Enable Allow User Scripts in the extension settings.');
+    const registrations = available ? await getUserScripts() : [];
     try {
-        if (wasRegistered) await unregisterUserScripts({ ids: [updated.id] });
-        if (shouldRegister) await registerUserScripts([registrationFor(updated)]);
-        if (index === -1) scripts.push(updated);
-        else scripts[index] = updated;
-        await chrome.storage.local.set({ scripts });
-    } catch (error) {
-        if (shouldRegister) await unregisterUserScripts({ ids: [updated.id] }).catch(() => undefined);
-        await restoreRegistration(previous, wasRegistered);
-        throw error;
-    }
-
-    await updateActiveTabBadge();
-}
-
-export async function handleToggleScript(scriptId: string, enabled: boolean) {
-    if (!await isUserScriptsAvailable()) throw new Error('API unavailable');
-
-    const data = await chrome.storage.local.get(['scripts', 'extensionEnabled']);
-    const scripts: Script[] = Array.isArray(data.scripts) ? [...data.scripts] : [];
-    const index = scripts.findIndex(s => s.id === scriptId);
-    const previous = scripts[index];
-
-    if (previous) {
-        const updated = { ...previous, enabled, token: previous.token || crypto.randomUUID() };
-        const wasRegistered = (await getUserScripts({ ids: [scriptId] })).length > 0;
-        const shouldRegister = enabled && data.extensionEnabled !== false;
-        if (enabled && !shouldRegister) await validateRegistration(updated);
-        try {
-            if (wasRegistered) await unregisterUserScripts({ ids: [scriptId] });
-            if (shouldRegister) await registerUserScripts([registrationFor(updated)]);
-            scripts[index] = updated;
-            await chrome.storage.local.set({ scripts });
-        } catch (error) {
-            if (shouldRegister) await unregisterUserScripts({ ids: [scriptId] }).catch(() => undefined);
-            await restoreRegistration(previous, wasRegistered);
-            throw error;
+        if (available) {
+            for (const script of scripts) {
+                const old = previous.find(item => item.id === script.id);
+                if (!old || old.code !== script.code) await validateRegistration(script);
+            }
+            await configureWorlds(active);
+            const wanted = await Promise.all(active.map(registrationFor));
+            const same = (a: chrome.userScripts.RegisteredUserScript, b: chrome.userScripts.RegisteredUserScript) => a.worldId === b.worldId && JSON.stringify(a.js) === JSON.stringify(b.js) && a.runAt === b.runAt;
+            const remove = registrations.filter(reg => !wanted.some(next => reg.id === next.id && same(reg, next))).map(reg => reg.id);
+            if (remove.length) await unregisterUserScripts({ ids: remove });
+            const add = wanted.filter(reg => !registrations.some(old => old.id === reg.id && same(old, reg)));
+            if (add.length) await registerUserScripts(add);
         }
-        await updateActiveTabBadge();
-    }
-}
-
-export async function handleDeleteScript(scriptId: string) {
-    if (!await isUserScriptsAvailable()) throw new Error('API unavailable');
-
-    const data = await chrome.storage.local.get('scripts');
-    const scripts: Script[] = Array.isArray(data.scripts) ? data.scripts : [];
-    const previous = scripts.find(s => s.id === scriptId);
-    if (!previous) return;
-    const newScripts = scripts.filter((s) => s.id !== scriptId);
-    const wasRegistered = (await getUserScripts({ ids: [scriptId] })).length > 0;
-    if (wasRegistered) await unregisterUserScripts({ ids: [scriptId] });
-    try {
-        await chrome.storage.local.set({ scripts: newScripts });
+        await chrome.storage.local.set({ scripts, ...fields });
     } catch (error) {
-        await restoreRegistration(previous, wasRegistered);
+        if (available) {
+            await unregisterUserScripts().catch(() => {});
+            await configureWorlds(previous.filter(script => script.enabled && !script.pendingApproval)).catch(() => {});
+            if (registrations.length) await registerUserScripts(registrations).catch(rollback => console.error('Registration rollback failed:', rollback));
+        }
         throw error;
     }
     await updateActiveTabBadge();
+}
+export function reloadAllScripts(): Promise<void> {
+    return serialize(async () => {
+        await stateReady;
+        const { scripts = [] } = await chrome.storage.local.get('scripts');
+        await commitLibrary(scripts as Script[], scripts as Script[]);
+    });
+}
+export function handleSaveScript(value: unknown, approved = false): Promise<void> {
+    return serialize(async () => {
+        await stateReady; validateScript(value);
+        const data = await chrome.storage.local.get('scripts');
+        const previous = (data.scripts || []) as Script[];
+        const old = previous.find(script => script.id === value.id);
+        const updated = protectScript(value, old, approved);
+        if (updated.pendingApproval) throw new Error('Script permission review is required.');
+        await commitLibrary([...previous.filter(script => script.id !== value.id), updated], previous);
+    });
+}
+export function handleToggleScript(id: string, enabled: boolean, approved = false): Promise<void> {
+    return serialize(async () => {
+        await stateReady;
+        const data = await chrome.storage.local.get('scripts');
+        const previous = (data.scripts || []) as Script[];
+        const old = previous.find(script => script.id === id);
+        if (!old) throw new Error('Script not found.');
+        const updated = protectScript({ ...old, enabled }, old, approved);
+        if (enabled && updated.pendingApproval) throw new Error('Script permission review is required.');
+        await commitLibrary(previous.map(script => script.id === id ? updated : script), previous);
+    });
+}
+export function handleToggleGlobal(enabled: boolean): Promise<void> {
+    return serialize(async () => {
+        await stateReady;
+        const before = await chrome.storage.local.get(['scripts', 'extensionEnabled']);
+        await chrome.storage.local.set({ extensionEnabled: enabled });
+        try { await commitLibrary((before.scripts || []) as Script[], (before.scripts || []) as Script[]); }
+        catch (error) { await chrome.storage.local.set({ extensionEnabled: before.extensionEnabled !== false }); throw error; }
+    });
+}
+export function handleDeleteScript(id: string): Promise<void> {
+    return serialize(async () => {
+        await stateReady;
+        const { scripts = [] } = await chrome.storage.local.get('scripts');
+        await commitLibrary((scripts as Script[]).filter(script => script.id !== id), scripts as Script[]);
+    });
+}
+export function handleApplyLibrary(values: unknown, folders?: unknown, restoring = false): Promise<void> {
+    return serialize(async () => {
+        await stateReady; validateLibrary(values);
+        if (folders !== undefined && (!Array.isArray(folders) || folders.some(folder => typeof folder !== 'string' || folder.split('/').some((part: string) => !part || part === '.' || part === '..' || (part.includes('\\') || [...part].some(char => char.charCodeAt(0) < 32)))))) throw new Error('Invalid folders.');
+        const data = await chrome.storage.local.get('scripts');
+        const previous = (data.scripts || []) as Script[];
+        const scripts = values.map(script => protectScript(script, previous.find(old => old.id === script.id)));
+        await commitLibrary(scripts, previous, { ...(folders !== undefined ? { scriptFolders: folders } : {}), ...(restoring ? { backupRestoreMarker: crypto.randomUUID() } : {}) });
+    });
+}
+
+export function handleImportScripts(values: unknown, approvals: unknown): Promise<void> {
+    return serialize(async () => {
+        await stateReady; validateLibrary(values);
+        if (!Array.isArray(approvals) || approvals.some(id => typeof id !== 'string')) throw new Error('Invalid import approval.');
+        const { scripts = [] } = await chrome.storage.local.get('scripts');
+        const previous = scripts as Script[];
+        const approvedIds = new Set(approvals);
+        const imported = values.map(script => protectScript(script, previous.find(old => old.id === script.id), approvedIds.has(script.id)));
+        if (imported.some(script => script.pendingApproval)) throw new Error('Import permission review is required.');
+        const ids = new Set(imported.map(script => script.id));
+        await commitLibrary([...previous.filter(script => !ids.has(script.id)), ...imported], previous);
+    });
 }

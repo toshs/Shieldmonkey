@@ -1,5 +1,6 @@
+import { exportScript } from '../shared/policy';
 import { parseMetadata } from './metadataParser';
-import type { Script } from '../sandbox/options/types';
+import type { Script } from '../options/types';
 
 export interface WorkspaceEntry {
     id: string;
@@ -95,7 +96,7 @@ export async function hashCode(code: string): Promise<string> {
 }
 
 function entryFor(script: Script, path: string, hash: string): WorkspaceEntry {
-    const { code: _code, lastSavedCode: _lastSavedCode, ...metadata } = script;
+    const { code: _code, lastSavedCode: _lastSavedCode, ...metadata } = exportScript(script);
     void _code;
     void _lastSavedCode;
     return { id: script.id, path, hash, identity: scriptIdentity(script.code) || '', metadata };
@@ -123,8 +124,6 @@ function withFileMetadata(script: Script, code: string, path: string): Script {
         code,
         name: metadata.name,
         namespace: metadata.namespace || '',
-        grantedPermissions: metadata.grant,
-        token: crypto.randomUUID(),
         folderPath: folderOf(path),
         filePath: path,
         updateDate: Date.now(),
@@ -143,9 +142,6 @@ export async function reconcileWorkspace(
     diskFolders: string[],
 ): Promise<Reconciliation> {
     const scripts = appScripts.map(script => ({ ...script }));
-    for (const script of scripts) {
-        if (!script.token) script.token = crypto.randomUUID();
-    }
     const appById = new Map(scripts.map(script => [script.id, script]));
     const fileHashes = new Map<string, string>();
     for (const [path, code] of files) fileHashes.set(path, await hashCode(code));
@@ -295,9 +291,8 @@ export async function reconcileWorkspace(
         const metadata = parseMetadata(code);
         const imported: Script = {
             id: crypto.randomUUID(), name: metadata.name, namespace: metadata.namespace || '',
-            code, enabled: true, grantedPermissions: metadata.grant,
-            token: crypto.randomUUID(),
-            folderPath: folderOf(path), filePath: path, installDate: Date.now(), updateDate: Date.now(),
+            code, enabled: false, pendingApproval: true, grantedPermissions: [],
+                folderPath: folderOf(path), filePath: path, installDate: Date.now(), updateDate: Date.now(),
         };
         scripts.push(imported);
         entries.push(entryFor(imported, path, fileHashes.get(path)!));
@@ -412,7 +407,7 @@ async function saveSnapshot(root: FileSystemDirectoryHandle, scripts: Script[], 
     const directory = await root.getDirectoryHandle('history', { create: true });
     const timestamp = new Date().toISOString();
     const name = `${timestamp.replace(/[:.]/g, '-')}-${String(++snapshotSequence).padStart(6, '0')}-${crypto.randomUUID().slice(0, 8)}.json`;
-    const snapshot: WorkspaceSnapshot = { format: 1, timestamp, reason, folders, scripts };
+    const snapshot: WorkspaceSnapshot = { format: 1, timestamp, reason, folders, scripts: scripts.map(exportScript) };
     await writeText(directory, name, JSON.stringify(snapshot));
     return name;
 }
@@ -430,7 +425,7 @@ export async function initializeWorkspace(root: FileSystemDirectoryHandle, scrip
     await root.getDirectoryHandle('history', { create: true });
     const occupied = new Set<string>();
     const entries: WorkspaceEntry[] = [];
-    const nextScripts = scripts.map(script => ({ ...script, token: script.token || crypto.randomUUID() }));
+    const nextScripts = scripts.map(script => ({ ...script }));
     await ensureFolders(scriptsDir, normalizedFolders);
     for (const script of nextScripts) {
         const path = pathForNewScript(script, occupied);
@@ -628,10 +623,10 @@ export async function restoreWorkspaceHistory(
     if (scriptId) {
         const selected = snapshot.scripts.find(script => script.id === scriptId);
         if (!selected) throw new Error('Script not present in this history item.');
-        scripts = [...currentScripts.filter(script => script.id !== scriptId), { ...selected, token: crypto.randomUUID() }];
+        scripts = [...currentScripts.filter(script => script.id !== scriptId), { ...selected }];
         folders = unique([...currentFolders, ...snapshot.folders]);
     } else {
-        scripts = snapshot.scripts.map(script => ({ ...script, token: crypto.randomUUID() }));
+        scripts = snapshot.scripts.map(script => ({ ...script }));
         folders = [...snapshot.folders];
     }
     const identities = scripts.map(scriptIdentityFromScript);

@@ -6,7 +6,7 @@ import {
     reconcileWorkspace, resolveWorkspaceConflict, restoreWorkspaceHistory, synchronizeWorkspace,
     type WorkspaceState,
 } from '../../src/utils/workspaceManager';
-import type { Script } from '../../src/sandbox/options/types';
+import type { Script } from '../../src/options/types';
 
 beforeAll(() => { Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true }); });
 
@@ -141,6 +141,20 @@ describe('editable workspace reconciliation', () => {
 });
 
 describe('workspace files and history', () => {
+    it('never writes profile credentials or approval authority into state or history', async () => {
+        const root = new FakeDirectory();
+        const value = { ...script('private', 'Private'), token: 'profile-secret', approvedScope: {match: [], include: [], exclude: []}, pendingApproval: false };
+        await initializeWorkspace(handle(root), [value], []);
+        const state = await readWorkspaceState(handle(root));
+        expect(state?.entries[0].metadata).not.toHaveProperty('token');
+        expect(state?.entries[0].metadata).not.toHaveProperty('approvedScope');
+        const history = await root.getDirectoryHandle('history');
+        for await (const [, file] of history.entries()) {
+            expect((file as FakeFile).content).not.toContain('profile-secret');
+            expect((file as FakeFile).content).not.toContain('approvedScope');
+        }
+    });
+
     it('writes nested files, keeps unlimited snapshots, and restores one script', async () => {
         const root = new FakeDirectory();
         const initial = script('one', 'A', 'console.log(1)', 'Tools');

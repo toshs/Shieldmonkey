@@ -13,7 +13,7 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-    await browserContext.close();
+    await browserContext?.close();
 });
 
 test('Userscript Isolation: Script A should not see variable from Script B', async () => {

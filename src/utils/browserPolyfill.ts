@@ -81,7 +81,7 @@ export const isUserScriptsAvailable = async (): Promise<boolean> => {
 /**
  * Wrapper for userScripts.register
  */
-export const registerUserScripts = async (scripts: chrome.userScripts.UserScript[]) => {
+export const registerUserScripts = async (scripts: chrome.userScripts.RegisteredUserScript[]) => {
     if (!browserAPI.userScripts) throw new Error("userScripts API not available");
     return await browserAPI.userScripts.register(scripts);
 };
@@ -97,9 +97,9 @@ export const unregisterUserScripts = async (filter?: chrome.userScripts.ScriptFi
 /**
  * Wrapper for userScripts.getScripts
  */
-export const getUserScripts = async (filter?: chrome.userScripts.ScriptFilter): Promise<chrome.userScripts.UserScript[]> => {
+export const getUserScripts = async (filter?: chrome.userScripts.ScriptFilter): Promise<chrome.userScripts.RegisteredUserScript[]> => {
     if (!browserAPI.userScripts) return [];
-    return await browserAPI.userScripts.getScripts(filter);
+    return await browserAPI.userScripts.getScripts(filter) as chrome.userScripts.RegisteredUserScript[];
 };
 
 /**

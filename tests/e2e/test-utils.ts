@@ -1,5 +1,6 @@
 import { type BrowserContext, type Page, chromium } from 'playwright';
-import { readFileSync, rmSync, existsSync } from 'fs';
+import { readFileSync, rmSync, mkdtempSync } from 'fs';
+import { tmpdir } from 'node:os';
 import path from 'path';
 import { createHash } from 'node:crypto';
 
@@ -29,32 +30,17 @@ export interface MockScript {
 
 // Main extension launcher
 export async function launchExtension(): Promise<ExtensionContext> {
-    // Clean up previous user data dir to avoid SingletonLock errors
-    if (existsSync(USER_DATA_DIR)) {
-        try {
-            rmSync(USER_DATA_DIR, { recursive: true, force: true });
-        } catch (e) {
-            console.warn(`[WARN] Failed to clean up user data dir: ${e}`);
-        }
-    }
-
-    const isHeadless = process.env.HEADLESS !== 'false';
-    const args = [
-        `--disable-extensions-except=${EXTENSION_PATH}`,
-        `--load-extension=${EXTENSION_PATH}`,
-    ];
-
-    if (isHeadless) {
-        args.push('--headless=new');
-    }
-
-    const browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
-        headless: false, // Use --headless=new in args instead for extensions
-        locale: 'en',
-        args,
+    const profile = mkdtempSync(path.join(tmpdir(), 'shieldmonkey-e2e-'));
+    const browserContext = await chromium.launchPersistentContext(profile, {
+        channel: 'chromium', headless: process.env.HEADLESS !== 'false',
+        ignoreDefaultArgs: ['--disable-extensions'], locale: 'en',
+        args: [`--disable-extensions-except=${EXTENSION_PATH}`, `--load-extension=${EXTENSION_PATH}`],
     });
+    console.log('[launch] Chromium started');
+    browserContext.on('close', () => { try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* Chromium can still be finishing profile writes. */ } });
 
     browserContext.setDefaultTimeout(30000);
+    await browserContext.route(/^https:\/\/(shieldmonkey\.github\.io|example\.com)(?:\/|$)/, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>ShieldMonkey Test</title><body>Test page</body>' }));
 
     try {
         const page = await browserContext.newPage();
@@ -62,18 +48,29 @@ export async function launchExtension(): Promise<ExtensionContext> {
         page.on('console', msg => console.log(`[PAGE CONSOLE] ${msg.text()}`));
         page.on('pageerror', exception => console.log(`[PAGE ERROR] ${exception}`));
 
-        // Wait for service worker to be ready
+        // Discover the installed extension before requiring a worker. Its
+        // first worker may need the user-scripts toggle enabled and a reload.
+        console.log('[launch] opening extension manager');
+        await page.goto('chrome://extensions/', { waitUntil: 'commit' });
+        console.log('[launch] manager loaded');
+        const extensionId = await page.evaluate(async expectedPath => {
+            type Info = { id: string; path: string; manifestErrors: unknown[] };
+            const api = (chrome as unknown as { developerPrivate: { getExtensionsInfo: (options: object, callback: (items: Info[]) => void) => void } }).developerPrivate;
+            const items = await new Promise<Info[]>(resolve => api.getExtensionsInfo({ includeDisabled: true }, resolve));
+            const extension = items.find(item => item.path === expectedPath);
+            if (!extension || extension.manifestErrors.length) throw new Error('Extension was not loaded: ' + JSON.stringify(items.map(item => ({ id: item.id, errors: item.manifestErrors }))));
+            return extension.id;
+        }, EXTENSION_PATH);
+        console.log('[launch] extension discovered', extensionId);
+        await enableUserScriptsIfNeeded(page, extensionId);
+        console.log('[launch] script permission enabled');
         await waitForServiceWorker(browserContext);
+        console.log(`Extension ready: ${extensionId}`);
 
-        const extensionId = await getExtensionId(browserContext);
-        console.log(`Extension ID: ${extensionId}`);
-
-        await enableUserScriptsIfNeeded(browserContext, extensionId);
-
-        // Create a new page just in case the page is not available
-        const newPage = await browserContext.newPage();
-
-        return { browserContext, page: newPage, extensionId };
+        await page.goto(getExtensionUrl(extensionId, '/src/options/index.html'), { waitUntil: 'domcontentloaded' });
+        await page.evaluate(() => chrome.runtime.sendMessage({ type: 'RELOAD_SCRIPTS' }));
+        await waitForServiceWorker(browserContext);
+        return { browserContext, page, extensionId };
     } catch (error) {
         await browserContext.close().catch(() => { }); // Ignore close errors
         throw error;
@@ -96,56 +93,26 @@ async function waitForServiceWorker(browserContext: BrowserContext): Promise<voi
     throw new Error('Service worker did not start within expected time');
 }
 
-// Helper: Get extension ID from service workers
-async function getExtensionId(browserContext: BrowserContext): Promise<string> {
-    const serviceWorkers = browserContext.serviceWorkers();
-    if (serviceWorkers.length === 0) {
-        throw new Error('No service workers found');
-    }
-
-    const url = serviceWorkers[0].url();
-    const match = url.match(/chrome-extension:\/\/([a-z0-9]+)/);
-    if (!match) {
-        throw new Error(`Could not extract extension ID from URL: ${url}`);
-    }
-
-    return match[1];
-}
-
-// Helper: Check if User Scripts API is enabled
-async function isUserScriptsEnabled(browserContext: BrowserContext): Promise<boolean> {
-    const serviceWorkers = browserContext.serviceWorkers();
-    if (serviceWorkers.length === 0) return false;
-
-    return await serviceWorkers[0].evaluate(async () => {
-        try {
-            if (typeof chrome.userScripts === 'undefined') return false;
-            await chrome.userScripts.getScripts({});
-            return true;
-        } catch {
-            return false;
-        }
-    });
-}
-
 // Helper: Enable User Scripts API if needed
 async function enableUserScriptsIfNeeded(
-    browserContext: BrowserContext,
+    settingPage: Page,
     extensionId: string
 ): Promise<void> {
-    if (await isUserScriptsEnabled(browserContext)) {
-        return;
+    await settingPage.evaluate(async id => {
+        const api = (chrome as unknown as { developerPrivate: { updateExtensionConfiguration: (config: { extensionId: string; userScriptsAccess: boolean }, callback: () => void) => void; reload: (id: string, options: object, callback: () => void) => void } }).developerPrivate;
+        await new Promise<void>((resolve, reject) => api.updateExtensionConfiguration({ extensionId: id, userScriptsAccess: true }, () => chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve()));
+    }, extensionId);
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const state = await settingPage.evaluate(id => new Promise<string>(resolve => {
+            (chrome as unknown as { developerPrivate: { getExtensionsInfo: (options: object, callback: (items: { id: string; state: string; disableReasons?: { reloading?: boolean } }[]) => void) => void } }).developerPrivate.getExtensionsInfo({ includeDisabled: true }, items => {
+                const item = items.find(item => item.id === id);
+                resolve(item && !item.disableReasons?.reloading ? item.state : 'RELOADING');
+            });
+        }), extensionId);
+        if (state === 'ENABLED') return;
+        await new Promise(resolve => setTimeout(resolve, 200));
     }
-
-    const settingPage = await browserContext.newPage();
-    await settingPage.goto(`chrome://extensions?id=${extensionId}`);
-
-    const toggleRow = settingPage.locator('#allow-user-scripts');
-    const toggleButton = toggleRow.locator('cr-toggle');
-
-    if ((await toggleButton.getAttribute('aria-pressed')) === 'false') {
-        await toggleButton.click();
-    }
+    throw new Error('Extension did not finish reloading.');
 }
 
 // Helper: Navigate to extension page
@@ -377,24 +344,8 @@ export async function injectScriptToStorage(page: Page, scriptPath: string) {
         throw new Error('injectScriptToStorage requires the page to be on a chrome-extension:// URL');
     }
 
-    await page.evaluate(async (script) => {
-        const data = await chrome.storage.local.get('scripts');
-        const list = Array.isArray(data.scripts) ? data.scripts : [];
-
-        // Update or Add
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const idx = list.findIndex((s: any) => s.id === script.id);
-        if (idx >= 0) {
-            list[idx] = script;
-        } else {
-            list.push(script);
-        }
-
-        await chrome.storage.local.set({ scripts: list });
-
-        // Trigger reload
-        await chrome.runtime.sendMessage({ type: 'RELOAD_SCRIPTS' });
-    }, scriptObj);
+    const response = await page.evaluate(script => chrome.runtime.sendMessage({ type: 'SAVE_SCRIPT', script, approved: true }), scriptObj);
+    if (!response?.success) throw new Error(response?.error || 'Fixture save failed.');
 }
 
 // Helper: Install script via mock backup restore
@@ -417,7 +368,7 @@ export async function installScriptFromPath(page: Page, extensionId: string, scr
     await page.waitForTimeout(TIMEOUT.MEDIUM);
 
     // 3. Trigger restore
-    const frame = page.frameLocator('iframe');
+    const frame = page;
     const selectBtn = frame.getByRole('button', { name: /Select$/i });
     await selectBtn.waitFor({ state: 'visible' });
     await selectBtn.click();
@@ -455,5 +406,8 @@ export async function installScriptFromPath(page: Page, extensionId: string, scr
 
     // 6. Verification: Check if script is in list
     // navigate to scripts page? No, let's just wait a bit.
+    await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/scripts'));
+    await page.getByRole('switch').first().click();
+    await page.locator('.permission-dialog').getByRole('button', { name: 'Allow', exact: true }).click();
     await page.waitForTimeout(500);
 }

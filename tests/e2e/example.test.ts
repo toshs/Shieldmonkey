@@ -14,7 +14,7 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-    await browserContext.close();
+    await browserContext?.close();
 });
 
 test('Extension loads and popup opens', async () => {

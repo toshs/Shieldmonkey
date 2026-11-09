@@ -12,7 +12,7 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-    await browserContext.close();
+    await browserContext?.close();
 });
 
 test('CSP blocks fetch in background', async () => {

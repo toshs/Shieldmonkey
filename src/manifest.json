@@ -2,14 +2,12 @@
   "manifest_version": 3,
   "default_locale": "en",
   "name": "__MSG_appName__",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "__MSG_appDescription__",
   "permissions": [
     "storage",
     "userScripts",
-    "scripting",
     "tabs",
-    "activeTab",
     "notifications",
     "webNavigation",
     "downloads",
@@ -18,15 +16,6 @@
   "host_permissions": [
     "<all_urls>"
   ],
-  "declarative_net_request": {
-    "rule_resources": [
-      {
-        "id": "ruleset_1",
-        "enabled": true,
-        "path": "src/rules.json"
-      }
-    ]
-  },
   "action": {
     "default_popup": "src/popup/index.html"
   },
@@ -43,23 +32,8 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "sandbox": {
-    "pages": [
-      "src/sandbox/index.html"
-    ]
-  },
   "content_security_policy": {
-    "extension_pages": "script-src 'self';object-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; default-src 'none'"
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'"
   },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "assets/*",
-        "src/sandbox/*"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
-  ]
+  "minimum_chrome_version": "133"
 }

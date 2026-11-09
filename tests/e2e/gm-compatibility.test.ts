@@ -15,7 +15,7 @@ test.beforeEach(async () => {
 }, 60000);
 
 test.afterEach(async () => {
-    await browserContext.close();
+    await browserContext?.close();
 });
 
 test('GM API Compatibility: block restricted APIs and support window features', async () => {

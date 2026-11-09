@@ -14,7 +14,7 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-    await browserContext.close();
+    await browserContext?.close();
 });
 
 test('Popup page opens successfully', async () => {
@@ -44,7 +44,7 @@ test('Create new script opens options page with editor', async () => {
     expect(url).toContain('#/options/new'); // Updated from #/new to #/options/new
 
     // New page also has an iframe
-    const newPageFrame = newPage.frameLocator('iframe');
+    const newPageFrame = newPage;
 
     // Check if editor is loaded
     await newPageFrame.locator('.cm-editor').waitFor();

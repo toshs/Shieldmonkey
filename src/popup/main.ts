@@ -2,7 +2,7 @@ import popupCss from './App.css?inline';
 import { popupIcons } from './icons';
 import { popupTexts } from './messages';
 import { getPopupData, type PopupScript } from './data';
-import type { Theme } from '../sandbox/options/types';
+import type { Theme } from '../options/types';
 
 const stylesheet = document.createElement('style');
 stylesheet.textContent = popupCss;
@@ -137,11 +137,6 @@ function renderRows(container: HTMLElement): void {
         const actions = el('div', 'script-actions');
         actions.append(iconButton('edit', t('editTooltip'), () => openDashboard(`#/options/scripts/${script.id}`)));
         if (!mobile) {
-            if (script.hasUpdateUrl) {
-                actions.append(iconButton('refresh', t('checkForUpdatesTooltip'), () => {
-                    void sendAction('START_UPDATE_FLOW', { scriptId: script.id }).catch(console.error);
-                }));
-            }
             const remove = iconButton('trash', t('deleteTooltip'), () => { void deleteScript(script.id, script.name); });
             remove.style.color = '#ef4444';
             actions.append(remove);
@@ -175,6 +170,7 @@ function renderContent(main: HTMLElement): void {
         const rows = el('div');
         renderRows(rows);
         list.append(rows);
+        if (scripts.length > 10) list.append(el('p', 'popup-no-results', t('worldLimitNotice')));
         main.append(list);
     } else {
         const empty = el('div', 'empty-state');
@@ -243,6 +239,7 @@ async function toggleGlobal(checked: boolean): Promise<void> {
 async function toggleScript(id: string, checked: boolean): Promise<void> {
     const script = scripts.find(item => item.id === id);
     if (!script) return;
+    if (checked && script.pendingApproval) { openDashboard(`#/options/scripts/${id}`); return; }
     const previous = script.enabled;
     script.enabled = checked;
     render();

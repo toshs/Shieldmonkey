@@ -363,5 +363,17 @@
   "enabled": {"message": "有効"},
   "disabled": {"message": "無効"},
   "mobileNewScript": {"message": "新規作成"},
-  "mobileSelect": {"message": "選択"}
+  "mobileSelect": {"message": "選択"},
+  "manualImportTitle": {
+    "message": "スクリプトの手動取り込み"
+  },
+  "manualImportNotice": {
+    "message": "リンクからのインストールと URL 更新は廃止しました。ファイルの取り込み・貼り付け・ローカルフォルダーから追加してください。"
+  },
+  "approvalPending": {
+    "message": "権限の確認が必要"
+  },
+  "worldLimitNotice": {
+    "message": "このページには10本を超えるスクリプトが一致します。個別の隔離を保つため、一部が実行されない場合があります。"
+  }
 }

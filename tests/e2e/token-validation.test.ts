@@ -15,7 +15,7 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-    await browserContext.close();
+    await browserContext?.close();
 });
 
 test('Token Validation: Script should lose access if token changes in background', async () => {

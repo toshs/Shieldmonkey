@@ -1,10 +1,10 @@
-import type { Script, Theme } from '../sandbox/options/types';
+import type { Script, Theme } from '../options/types';
 
 export interface PopupScript {
     id: string;
     name: string;
     enabled?: boolean;
-    hasUpdateUrl: boolean;
+    pendingApproval?: boolean;
 }
 
 export interface PopupData {
@@ -26,7 +26,7 @@ export interface PopupMetadata {
 }
 
 // The popup only needs matching rules and update links. Keep this parser small so
-// opening the popup does not load the editor's metadata and bridge bundles.
+// opening the popup does not load the editor's metadata and app bundles.
 export function readPopupMetadata(code: string): PopupMetadata {
     const metadata: PopupMetadata = { match: [], include: [], exclude: [] };
     const block = code.match(/\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/m)?.[1];
@@ -71,12 +71,10 @@ export async function getPopupData(): Promise<PopupData> {
         for (const script of data.scripts as Script[]) {
             const metadata = readPopupMetadata(script.code);
             if (!matchesPopupMetadata(metadata, currentUrl)) continue;
-            const links = script as Script & { updateUrl?: string; downloadUrl?: string };
             scripts.push({
                 id: script.id,
                 name: script.name,
-                enabled: script.enabled,
-                hasUpdateUrl: !!(links.updateUrl || links.downloadUrl || script.sourceUrl || metadata.updateURL || metadata.downloadURL || metadata.installURL || metadata.source)
+                enabled: script.enabled, pendingApproval: script.pendingApproval
             });
         }
     }

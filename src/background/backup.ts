@@ -1,5 +1,5 @@
 import { serializeBackup } from '../utils/backupManager';
-import type { Script } from '../sandbox/options/types';
+import type { Script } from '../options/types';
 import { getDirectoryHandle } from '../utils/backupStorage';
 
 let running = false;

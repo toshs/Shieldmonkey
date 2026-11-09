@@ -1,0 +1,775 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useLocation, useBlocker } from 'react-router-dom';
+import CodeMirror from '@uiw/react-codemirror';
+
+import { javascript, scopeCompletionSource } from '@codemirror/lang-javascript';
+import { userScriptMetadataCompletion } from '../codemirrorConfig';
+import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode';
+import { ArrowLeft, Save, Trash2, Info, Shield, Globe, Link as LinkIcon, X, Loader, Check, FileJson, Wrench, Undo2, Redo2, ClipboardCopy, ClipboardPaste } from 'lucide-react';
+import { undo, redo, undoDepth, redoDepth } from '@codemirror/commands';
+import { EditorView } from '@codemirror/view';
+import * as prettier from "prettier/standalone";
+import * as parserBabel from "prettier/plugins/babel";
+import * as parserEstree from "prettier/plugins/estree";
+import { useApp } from '../context/useApp';
+import { useModal } from '../context/useModal';
+import { parseMetadata } from '../../utils/metadataParser';
+import { isValidHttpUrl, sanitizeToHttpUrl } from '../../utils/urlValidator';
+import { type Script } from '../types';
+import { useI18n } from '../i18n/I18nContext';
+import { copyText } from '../../utils/clipboard';
+import PasteScriptDialog from '../components/PasteScriptDialog';
+
+function defaultMatchPattern(search: string): string {
+    const raw = new URLSearchParams(search).get('match');
+    if (raw) {
+        try {
+            const url = new URL(raw);
+            if (url.protocol === 'http:' || url.protocol === 'https:') {
+                return `${url.protocol}//${url.hostname}/*`;
+            }
+        } catch { /* Ignore malformed popup URLs. */ }
+    }
+    return '*://*/*';
+}
+
+const ScriptEditor = () => {
+    const { id } = useParams<{ id: string }>();
+    const isNew = !id || id === 'new';
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { scripts, saveScript, deleteScript } = useApp();
+    const { showModal: showGenericModal } = useModal();
+    const { t } = useI18n();
+
+    // Find script from context
+    const scriptFromContext = scripts.find((s: Script) => s.id === id);
+
+    // Initial state setup
+    const [code, setCode] = useState<string>('');
+    const [name, setName] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [savedCode, setSavedCode] = useState<string | null>(null);
+    const saveInProgress = useRef(false);
+
+    // New script specific state
+    const [newScriptId] = useState(() => crypto.randomUUID());
+    const [showTools, setShowTools] = useState(false);
+    const viewRef = useRef<EditorView | null>(null);
+    const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 900px), (pointer: coarse) and (max-width: 1200px)').matches);
+    const [editorFocused, setEditorFocused] = useState(false);
+    const [visibleViewportTop, setVisibleViewportTop] = useState(0);
+    const [canUndo, setCanUndo] = useState(false);
+    const [canRedo, setCanRedo] = useState(false);
+    const [pasteDialogOpen, setPasteDialogOpen] = useState(!!location.state?.openPaste);
+    const [codeBeforePaste, setCodeBeforePaste] = useState<string | null>(null);
+    const [copyNotice, setCopyNotice] = useState('');
+    const toolbarRef = useRef<HTMLDivElement>(null);
+    const allowNavigationRef = useRef(false);
+    const promptedLocationRef = useRef<string | null>(null);
+
+    // Close tools when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (showTools && toolbarRef.current && !toolbarRef.current.contains(event.target as Node)) {
+                setShowTools(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showTools]);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.matchMedia('(max-width: 900px), (pointer: coarse) and (max-width: 1200px)').matches);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+    useEffect(() => {
+        if (!isMobile) return;
+        const ownViewport = window.visualViewport;
+        const updatePosition = () => setVisibleViewportTop(value => Math.max(value, ownViewport?.pageTop || 0, window.scrollY));
+        updatePosition();
+        ownViewport?.addEventListener('scroll', updatePosition);
+        ownViewport?.addEventListener('resize', updatePosition);
+        window.addEventListener('scroll', updatePosition);
+        return () => {
+            ownViewport?.removeEventListener('scroll', updatePosition);
+            ownViewport?.removeEventListener('resize', updatePosition);
+            window.removeEventListener('scroll', updatePosition);
+        };
+    }, [isMobile]);
+
+    // Mobile Sidebar State
+    const [isMobileInfoOpen, setIsMobileInfoOpen] = useState(false);
+
+
+
+    // Track if we have initialized
+    const initializedRef = useRef(false);
+
+    useEffect(() => {
+        if (!initializedRef.current) {
+            if (isNew) {
+                // Initialize new script
+                const matchUrl = defaultMatchPattern(window.location.search);
+
+                const template = `// ==UserScript==
+// @name        New Script
+// @namespace   ShieldMonkey Scripts
+// @match       ${matchUrl}
+// @grant       none
+// @version     1.0
+// @author      -
+// @description 
+// ==/UserScript==
+
+(function() {
+  'use strict';
+  // Your code here...
+})();
+`;
+                setCode(template);
+                setName('New Script');
+                setSavedCode(null);
+                initializedRef.current = true;
+            } else if (scriptFromContext) {
+                // Initialize existing script
+                setCode(scriptFromContext.code);
+                setName(scriptFromContext.name);
+                setSavedCode(scriptFromContext.code);
+                initializedRef.current = true;
+            }
+        }
+    }, [scriptFromContext, isNew]);
+
+    const reviewPending = !!scriptFromContext?.pendingApproval;
+    const isDirty = initializedRef.current && (savedCode === null || code !== savedCode);
+    const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+        isDirty && !allowNavigationRef.current && currentLocation.pathname !== nextLocation.pathname
+    );
+
+    useEffect(() => {
+        if (blocker.state !== 'blocked') {
+            promptedLocationRef.current = null;
+            return;
+        }
+        const destination = blocker.location.pathname + blocker.location.search + blocker.location.hash;
+        if (promptedLocationRef.current === destination) return;
+        promptedLocationRef.current = destination;
+        showGenericModal('confirm', t('unsavedChangesTitle'), t('unsavedChangesMsg'), () => {
+            blocker.proceed();
+        }, undefined, undefined, () => blocker.reset());
+    }, [blocker, location.pathname, location.search, location.hash, showGenericModal, t]);
+
+    const showFloatingSave = isMobile && editorFocused && visibleViewportTop > 32;
+
+    const handleSave = useCallback(async () => {
+        if (saveInProgress.current || (!isDirty && !reviewPending)) return;
+        saveInProgress.current = true;
+        setIsSaving(true);
+        try {
+            const currentCode = code;
+            const metadata = parseMetadata(currentCode);
+            const updatedScript: Script = {
+                id: isNew ? newScriptId : scriptFromContext!.id,
+                name: metadata.name || (isNew ? 'New Script' : scriptFromContext!.name),
+                namespace: metadata.namespace || (isNew ? undefined : scriptFromContext!.namespace),
+                code: currentCode,
+                enabled: isNew || reviewPending ? true : scriptFromContext!.enabled,
+                installDate: isNew ? Date.now() : scriptFromContext!.installDate,
+                updateDate: Date.now(),
+                folderPath: isNew ? (location.state?.folderPath || '') : scriptFromContext!.folderPath,
+                filePath: isNew ? undefined : scriptFromContext!.filePath,
+            };
+
+            await saveScript(updatedScript);
+            setSavedCode(currentCode);
+            setName(updatedScript.name);
+            setCodeBeforePaste(null);
+
+            if (isNew) {
+                // Navigate to the edit URL for the new script so we are no longer in "new" mode
+                // Replace: true so we don't go back to /new
+                allowNavigationRef.current = true;
+                navigate(`/options/scripts/${updatedScript.id}`, { replace: true });
+            }
+
+        } catch (e) {
+            if (e instanceof DOMException && e.name === 'AbortError') return;
+            console.error("Failed to save", e);
+            showGenericModal('error', t('editorSaveFailed'), (e as Error).message);
+        } finally {
+            saveInProgress.current = false;
+            setIsSaving(false);
+        }
+    }, [code, isDirty, reviewPending, scriptFromContext, saveScript, showGenericModal, t, isNew, newScriptId, navigate, location.state]);
+
+    const handleDelete = () => {
+        if (isNew) {
+            navigate('/options/scripts');
+            return;
+        }
+        if (!scriptFromContext) return;
+        showGenericModal('confirm', t('editorConfirmDeleteTitle'), t('editorConfirmDeleteMsg'), async () => {
+            await deleteScript(scriptFromContext.id);
+            allowNavigationRef.current = true;
+            navigate('/options/scripts');
+        });
+    };
+
+
+
+    const handleUndo = () => {
+        if (viewRef.current) {
+            undo(viewRef.current);
+            viewRef.current.focus();
+        }
+    };
+
+    const handleRedo = () => {
+        if (viewRef.current) {
+            redo(viewRef.current);
+            viewRef.current.focus();
+        }
+    };
+
+    const handleCopyCode = async () => {
+        setShowTools(false);
+        if (await copyText(code)) {
+            setCopyNotice(t('codeCopied'));
+            setTimeout(() => setCopyNotice(''), 3000);
+        } else {
+            showGenericModal('info', t('copyCode'), <textarea readOnly value={code} onFocus={event => event.target.select()} style={{ width: '100%', minHeight: '40vh' }} />);
+        }
+    };
+
+    const handleApplyPastedCode = (nextCode: string) => {
+        setCodeBeforePaste(code);
+        setCode(nextCode);
+        setName(parseMetadata(nextCode).name || name);
+    };
+
+    const handleRestoreCode = () => {
+        if (codeBeforePaste === null) return;
+        setCode(codeBeforePaste);
+        setName(parseMetadata(codeBeforePaste).name || name);
+        setCodeBeforePaste(null);
+        setShowTools(false);
+    };
+
+    const handleFormat = useCallback(async () => {
+        try {
+            const formatted = await prettier.format(code, {
+                parser: "babel",
+                plugins: [parserBabel, parserEstree],
+                semi: true,
+                singleQuote: true,
+                tabWidth: 2,
+                trailingComma: 'none'
+            });
+            setCode(formatted);
+        } catch (e) {
+            console.error("Format failed", e);
+            // Optionally show toast/error
+        }
+    }, [code]);
+
+    // Keyboard shortcut
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                handleSave();
+            }
+            // Format shortcut (Shift+Alt+F or Cmd+Shift+P -> Format... but let's just do Shift+Alt+F)
+            if (e.shiftKey && e.altKey && (e.key === 'f' || e.key === 'F')) {
+                e.preventDefault();
+                handleFormat();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleSave, handleFormat]);
+
+    // Warn on unsaved changes
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (isDirty) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [isDirty]);
+
+    const handleBack = () => {
+        navigate('/options/scripts');
+    };
+
+    // Theme handling for CodeMirror
+    const { theme } = useApp();
+    const cmTheme = theme === 'light' ? vscodeLight : vscodeDark;
+
+    if (!isNew && !scriptFromContext) {
+        if (scripts.length === 0) return <div>{t('editorLoading')}</div>;
+        return <div>{t('editorScriptNotFound')}</div>;
+    }
+
+    // Metadata for header/sidebar info
+    const metadata = parseMetadata(code);
+    const sourceUrl = scriptFromContext?.sourceUrl;
+    const referrerUrl = scriptFromContext?.referrerUrl;
+
+    // URL truncation helper
+    const formatDisplayUrl = (urlStr: string) => {
+        if (!urlStr) return '';
+        try {
+            if (urlStr.length <= 60) return urlStr;
+            const url = new URL(urlStr);
+            const origin = url.origin;
+            const pathname = url.pathname;
+            const filename = pathname.split('/').pop();
+
+            if (pathname === '/' || !filename) {
+                return `${origin}/...`;
+            }
+            return `${origin}/.../${filename}`;
+        } catch {
+            return urlStr.length > 60 ? `${urlStr.slice(0, 40)}...` : urlStr;
+        }
+    };
+
+
+    return (
+        <div className="app-container script-editor-page">
+            {pasteDialogOpen && <PasteScriptDialog onApply={handleApplyPastedCode} onClose={() => setPasteDialogOpen(false)} />}
+            {/* Mobile Overlay */}
+            {isMobileInfoOpen && (
+                <div
+                    className="script-editor-sidebar-overlay"
+                    onClick={() => setIsMobileInfoOpen(false)}
+                />
+            )}
+
+            <aside className={`script-editor-sidebar ${isMobileInfoOpen ? 'open' : ''}`}>
+                <div
+                    className="sidebar-header"
+                    style={{
+                        cursor: 'pointer',
+                        justifyContent: 'space-between',
+                        paddingLeft: '24px',
+                        paddingRight: '16px',
+                        height: '60px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        boxSizing: 'border-box'
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Info size={16} />
+                        <h2 style={{ fontSize: '1rem', color: 'var(--text-secondary)', margin: 0 }}>{t('scriptInfo')}</h2>
+                    </div>
+                    {/* Mobile Close Button */}
+                    <button
+                        className="icon-btn mobile-toggle-btn"
+                        onClick={() => setIsMobileInfoOpen(false)}
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="content-scroll" style={{ padding: '0 24px 24px 24px' }}>
+
+                    {/* Info Section */}
+                    <div style={{ marginBottom: '32px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '12px 16px', fontSize: '0.85rem' }}>
+                            {/* Name & Namespace (Mobile: visible here) */}
+                            <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelName')}</div>
+                            <div style={{ wordBreak: 'break-all', fontWeight: 600 }}>{name}</div>
+
+                            <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelNamespace')}</div>
+                            <div style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{metadata.namespace || '-'}</div>
+
+                            <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelVersion')}</div>
+                            <div style={{ fontFamily: 'monospace' }}>{metadata.version || '-'}</div>
+
+                            <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelAuthor')}</div>
+                            <div>{metadata.author || '-'}</div>
+
+                            <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelInstalled')}</div>
+                            <div>{scriptFromContext?.installDate ? new Date(scriptFromContext.installDate).toLocaleDateString() : '-'}</div>
+
+                            {isValidHttpUrl(referrerUrl) && (
+                                <>
+                                    <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelPage')}</div>
+                                    <div style={{ wordBreak: 'break-all' }}>
+                                        <a href={sanitizeToHttpUrl(referrerUrl)} target="_blank" rel="noopener noreferrer" title={referrerUrl} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <LinkIcon size={12} style={{ flexShrink: 0 }} />
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatDisplayUrl(referrerUrl!)}</span>
+                                        </a>
+                                    </div>
+                                </>
+                            )}
+
+                            {isValidHttpUrl(sourceUrl) && (
+                                <>
+                                    <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelSource')}</div>
+                                    <div style={{ wordBreak: 'break-all' }}>
+                                        <a href={sanitizeToHttpUrl(sourceUrl)} target="_blank" rel="noopener noreferrer" title={sourceUrl} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <LinkIcon size={12} style={{ flexShrink: 0 }} />
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatDisplayUrl(sourceUrl!)}</span>
+                                        </a>
+                                    </div>
+                                </>
+
+                            )}
+
+                            {isValidHttpUrl(metadata.updateURL) && (
+                                <>
+                                    <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelUpdate')}</div>
+                                    <div style={{ wordBreak: 'break-all' }}>
+                                        <a href={sanitizeToHttpUrl(metadata.updateURL)} target="_blank" rel="noopener noreferrer" title={metadata.updateURL} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <LinkIcon size={12} style={{ flexShrink: 0 }} />
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatDisplayUrl(metadata.updateURL!)}</span>
+                                        </a>
+                                    </div>
+                                </>
+                            )}
+
+                            {isValidHttpUrl(metadata.downloadURL) && (
+                                <>
+                                    <div style={{ color: 'var(--text-secondary)' }}>{t('editorLabelDownload')}</div>
+                                    <div style={{ wordBreak: 'break-all' }}>
+                                        <a href={sanitizeToHttpUrl(metadata.downloadURL)} target="_blank" rel="noopener noreferrer" title={metadata.downloadURL} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <LinkIcon size={12} style={{ flexShrink: 0 }} />
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatDisplayUrl(metadata.downloadURL!)}</span>
+                                        </a>
+                                    </div>
+                                </>
+                            )}
+
+                        </div>
+                    </div>
+
+                    {/* Delete Script Button */}
+                    <div style={{ marginBottom: '32px' }}>
+                        <button
+                            className="btn-secondary"
+                            onClick={handleDelete}
+                            style={{
+                                color: '#ef4444',
+                                borderColor: 'var(--border-color)',
+                                width: '100%',
+                                justifyContent: 'center',
+                                padding: '10px'
+                            }}
+                        >
+                            <Trash2 size={16} />
+                            <span>{t('editorBtnDelete') || "Delete Script"}</span>
+                        </button>
+                    </div>
+
+
+
+                    {/* Matches Section */}
+                    {
+                        (metadata.match || []).length > 0 && (
+                            <div style={{ marginBottom: '32px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: 'var(--accent-color)' }}>
+                                    <Globe size={16} />
+                                    <h3 style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('editorHeaderMatches')}</h3>
+                                </div>
+                                <ul style={{
+                                    listStyle: 'none',
+                                    padding: 0,
+                                    margin: 0,
+                                    fontSize: '0.8rem',
+                                    fontFamily: 'monospace',
+                                    color: 'var(--text-secondary)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '8px'
+                                }}>
+                                    {metadata.match.map((m, i) => (
+                                        <li key={i} style={{ wordBreak: 'break-all' }}>{m}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )
+                    }
+
+
+                    {/* Permissions Section */}
+                    {
+                        (metadata.grant || []).filter(p => p !== 'none').length > 0 && (
+                            <div style={{ marginBottom: '32px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: 'var(--accent-color)' }}>
+                                    <Shield size={16} />
+                                    <h3 style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('editorHeaderPermissions')}</h3>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {(metadata.grant || []).filter(p => p !== 'none').map(p => (
+                                        <span key={p} className="permission-chip">
+                                            {p}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )
+                    }
+
+
+                </div >
+            </aside >
+
+            <main className="main-content">
+                <header className="editor-header">
+                    <div className="editor-navigation">
+                        {/* Mobile Back Button */}
+                        <button
+                            className="icon-btn"
+                            style={{ marginRight: '8px', padding: '6px' }}
+                            onClick={handleBack}
+                            title={t('editorBackToScripts')}
+                            aria-label={t('editorBackToScripts')}
+                        >
+                            <ArrowLeft size={18} />
+                        </button>
+
+                        {/* Mobile Info Toggle */}
+                        <button
+                            className="icon-btn mobile-toggle-btn"
+                            style={{ marginRight: '12px', padding: '6px' }}
+                            onClick={() => setIsMobileInfoOpen(true)}
+                            aria-label={t('scriptInfo')}
+                        >
+                            <Info size={18} />
+                        </button>
+                    </div>
+
+                    <div className="script-info-header" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1, minWidth: 0, paddingLeft: '16px' }}>
+                        <div
+                            className="script-name-input"
+                            title={t('nameDefinedInMetadata')}
+                            style={{
+                                cursor: 'default',
+                                marginLeft: 0,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                            }}
+                        >
+                            {name}
+                        </div>
+                        {metadata.namespace && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: '8px' }}>
+                                {metadata.namespace}
+                            </span>
+                        )}
+                    </div>
+
+
+                    <div className="editor-actions">
+                        {/* Manual Editor Toggle Removed - CodeMirror handles mobile natively */}
+
+                        <div ref={toolbarRef} style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
+                            {!isMobile ? (
+                                <>
+                                    <button
+                                        className="btn-secondary"
+                                        onClick={handleUndo}
+                                        title="Undo (Cmd+Z)"
+                                        disabled={!canUndo}
+                                        style={{ opacity: !canUndo ? 0.5 : 1, cursor: !canUndo ? 'not-allowed' : 'pointer' }}
+                                    >
+                                        <Undo2 size={16} />
+                                        <span>Undo</span>
+                                    </button>
+                                    <button
+                                        className="btn-secondary"
+                                        onClick={handleRedo}
+                                        title="Redo (Cmd+Shift+Z)"
+                                        disabled={!canRedo}
+                                        style={{ opacity: !canRedo ? 0.5 : 1, cursor: !canRedo ? 'not-allowed' : 'pointer' }}
+                                    >
+                                        <Redo2 size={16} />
+                                        <span>Redo</span>
+                                    </button>
+                                    <button className="btn-secondary" onClick={handleFormat} title="Format (Shift+Alt+F)">
+                                        <FileJson size={16} />
+                                        <span>Format</span>
+                                    </button>
+                                    <button className="btn-secondary" onClick={handleCopyCode}>
+                                        <ClipboardCopy size={16} />
+                                        <span>{t('copyCode')}</span>
+                                    </button>
+                                    <button className="btn-secondary" onClick={() => setPasteDialogOpen(true)}>
+                                        <ClipboardPaste size={16} />
+                                        <span>{t('pasteDialogTitle')}</span>
+                                    </button>
+                                    {codeBeforePaste !== null && <button className="btn-secondary" onClick={handleRestoreCode}>
+                                        <Undo2 size={16} />
+                                        <span>{t('restorePastedCode')}</span>
+                                    </button>}
+                                </>
+                            ) : (
+                                <>
+                                    {showTools && (
+                                        <div style={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '4px',
+                                            background: 'var(--surface-bg)',
+                                            padding: '8px',
+                                            borderRadius: '6px',
+                                            border: '1px solid var(--border-color)',
+                                            position: 'absolute',
+                                            top: '100%',
+                                            right: 0,
+                                            zIndex: 50,
+                                            marginTop: '8px',
+                                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                                            minWidth: '140px'
+                                        }}>
+                                            <button
+                                                className="btn-secondary"
+                                                onClick={() => { handleUndo(); /* Don't close */ }}
+                                                style={{
+                                                    justifyContent: 'flex-start',
+                                                    border: 'none',
+                                                    width: '100%',
+                                                    opacity: !canUndo ? 0.5 : 1,
+                                                    cursor: !canUndo ? 'not-allowed' : 'pointer'
+                                                }}
+                                                title="Undo"
+                                                disabled={!canUndo}
+                                            >
+                                                <Undo2 size={16} />
+                                                <span>Undo</span>
+                                            </button>
+                                            <button
+                                                className="btn-secondary"
+                                                onClick={() => { handleRedo(); /* Don't close */ }}
+                                                style={{
+                                                    justifyContent: 'flex-start',
+                                                    border: 'none',
+                                                    width: '100%',
+                                                    opacity: !canRedo ? 0.5 : 1,
+                                                    cursor: !canRedo ? 'not-allowed' : 'pointer'
+                                                }}
+                                                title="Redo"
+                                                disabled={!canRedo}
+                                            >
+                                                <Redo2 size={16} />
+                                                <span>Redo</span>
+                                            </button>
+                                            <button
+                                                className="btn-secondary"
+                                                onClick={() => { handleFormat(); setShowTools(false); }}
+                                                style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}
+                                                title="Format"
+                                            >
+                                                <FileJson size={16} />
+                                                <span>Format</span>
+                                            </button>
+                                            <button className="btn-secondary" onClick={handleCopyCode} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
+                                                <ClipboardCopy size={16} /><span>{t('copyCode')}</span>
+                                            </button>
+                                            <button className="btn-secondary" onClick={() => { setPasteDialogOpen(true); setShowTools(false); }} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
+                                                <ClipboardPaste size={16} /><span>{t('pasteDialogTitle')}</span>
+                                            </button>
+                                            {codeBeforePaste !== null && <button className="btn-secondary" onClick={handleRestoreCode} style={{ justifyContent: 'flex-start', border: 'none', width: '100%' }}>
+                                                <Undo2 size={16} /><span>{t('restorePastedCode')}</span>
+                                            </button>}
+                                        </div>
+                                    )}
+
+                                    <button
+                                        className={`btn-secondary ${showTools ? 'active' : ''}`}
+                                        onClick={() => setShowTools(!showTools)}
+                                        title="Tools"
+                                        style={{ background: showTools ? 'var(--bg-secondary)' : undefined }}
+                                    >
+                                        <Wrench size={16} />
+                                        <span>{t('editorTools')}</span>
+                                    </button>
+                                </>
+                            )}
+
+                            {!showFloatingSave && <button
+                                className={`btn-primary editor-save-button ${!isDirty && !isSaving ? 'is-saved' : ''}`}
+                                onClick={handleSave}
+                                disabled={isSaving || (!isDirty && !reviewPending)}
+                                aria-label={t(isSaving ? 'editorBtnSaving' : reviewPending ? 'approvalPending' : isDirty ? 'editorBtnSave' : 'editorSaved')}
+                            >
+                                {isSaving ? <Loader size={17} className="icon-spin" /> : isDirty ? <Save size={17} /> : <Check size={17} />}
+                                <span>{t(isSaving ? 'editorBtnSaving' : reviewPending ? 'approvalPending' : isDirty ? 'editorBtnSave' : 'editorSaved')}</span>
+                            </button>}
+                        </div>
+                    </div>
+                </header>
+                <span className="sr-only" role="status">{t(isSaving ? 'editorBtnSaving' : isDirty ? 'editorUnsaved' : 'editorSaved')}</span>
+                {showFloatingSave && <button className={`btn-primary editor-floating-save ${!isDirty && !isSaving ? 'is-saved' : ''}`} style={{ top: visibleViewportTop + 8 }} onClick={handleSave} disabled={isSaving || (!isDirty && !reviewPending)}>
+                    {isSaving ? <Loader size={17} className="icon-spin" /> : isDirty ? <Save size={17} /> : <Check size={17} />}
+                    {t(isSaving ? 'editorBtnSaving' : reviewPending ? 'approvalPending' : isDirty ? 'editorBtnSave' : 'editorSaved')}
+                </button>}
+                {copyNotice && <div className="editor-copy-notice" role="status">{copyNotice}</div>}
+
+                <div className="monaco-wrapper" onFocusCapture={() => setEditorFocused(true)} style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
+
+                    {/* CodeMirror Editor */}
+                    <div style={{ height: '100%', overflow: 'hidden', fontSize: '14px' }}>
+                        <CodeMirror
+                            onCreateEditor={(view) => {
+                                viewRef.current = view;
+                            }}
+                            value={code}
+                            height="100%"
+                            theme={cmTheme}
+                            extensions={[
+                                javascript({ jsx: true }),
+                                ...(isMobile ? [EditorView.lineWrapping] : []),
+                                javascript().language.data.of({
+                                    autocomplete: userScriptMetadataCompletion
+                                }),
+                                javascript().language.data.of({
+                                    autocomplete: scopeCompletionSource(globalThis)
+                                }),
+                                EditorView.updateListener.of((update) => {
+                                    if (update.docChanged || update.selectionSet) {
+                                        setCanUndo(undoDepth(update.state) > 0);
+                                        setCanRedo(redoDepth(update.state) > 0);
+                                    }
+                                })
+                            ]}
+                            onChange={(value) => {
+                                setCode(value);
+                                const metadata = parseMetadata(value);
+                                if (metadata.name && metadata.name !== name) {
+                                    setName(metadata.name);
+                                }
+                            }}
+
+                            className="codemirror-wrapper"
+                            basicSetup={{
+                                lineNumbers: true,
+                                foldGutter: true,
+                                highlightActiveLine: true,
+                                tabSize: 2,
+                            }}
+                            // indentWithTab={false} // Removed to restore default indentation behavior
+                            style={{
+                                fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+                                height: '100%'
+                            }}
+                        />
+                    </div>
+                </div>
+            </main>
+        </div >
+    );
+};
+
+export default ScriptEditor;

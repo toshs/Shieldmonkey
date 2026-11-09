@@ -1,8 +1,9 @@
+import { exportScript } from '../shared/policy';
 import { getBackupFingerprint, getDirectoryHandle, saveBackupFingerprint, verifyPermission } from './backupStorage';
-import type { Script } from '../sandbox/options/types';
+import type { Script } from '../options/types';
 import { parseMetadata } from './metadataParser';
 
-export type { Script } from '../sandbox/options/types';
+export type { Script } from '../options/types';
 
 interface ScriptFile { name: string; sha256: string }
 export interface BackupDocument {
@@ -27,18 +28,13 @@ export interface RestorePlan {
 
 const DUMP_NAME = 'shieldmonkey_dump.json';
 
-function cleanScript(script: Script): Script {
-    const { lastSavedCode: _lastSavedCode, token: _token, ...saved } = script as Script & { token?: string };
-    void _lastSavedCode;
-    void _token;
-    return saved;
-}
+const cleanScript = exportScript;
 
 function normalize(value: unknown): string {
     if (Array.isArray(value)) return '[' + value.map(normalize).join(',') + ']';
     if (value && typeof value === 'object') {
         const object = value as Record<string, unknown>;
-        return '{' + Object.keys(object).filter(key => key !== 'lastSavedCode' && key !== 'token').sort()
+        return '{' + Object.keys(object).filter(key => !['lastSavedCode', 'token', 'approvedScope', 'pendingApproval'].includes(key)).sort()
             .map(key => JSON.stringify(key) + ':' + normalize(object[key])).join(',') + '}';
     }
     return JSON.stringify(value);
@@ -236,8 +232,8 @@ export async function performBackup(existingHandle: FileSystemDirectoryHandle | 
 export async function performBackupLegacy(scripts: Script[], version: string): Promise<number> {
     const data = serializeBackup(scripts, version);
     const filename = 'shieldmonkey_backup_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
-    const { bridge } = await import('../sandbox/bridge/client');
-    await bridge.call('DOWNLOAD_JSON', { data, filename });
+    const { app } = await import('../app/service');
+    await app.call('DOWNLOAD_JSON', { data, filename });
     return scripts.length;
 }
 

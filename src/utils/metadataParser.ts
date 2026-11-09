@@ -50,7 +50,7 @@ export function parseMetadata(code: string): Metadata {
 
     const metadataBlock = match[1];
     const lines = metadataBlock.split('\n');
-    const keyValRegex = /\/\/\s*@(\w+)(?:\s+(.*))?/;
+    const keyValRegex = /\/\/\s*@([\w-]+)(?:\s+(.*))?/;
 
     for (const line of lines) {
         const kvMatch = line.match(keyValRegex);

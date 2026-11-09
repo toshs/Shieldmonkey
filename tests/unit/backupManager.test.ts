@@ -1,5 +1,5 @@
 import { test, expect, vi } from 'vitest';
-import type { Script } from '../../src/sandbox/options/types';
+import type { Script } from '../../src/options/types';
 import { acknowledgeRestoredFolder, parseBackup, performBackup, performRestore, planRestore, serializeBackup, verifyRestoredFolder } from '../../src/utils/backupManager';
 
 let fingerprint: string | undefined;

@@ -1,20 +1,20 @@
 {
   "name": "shieldmonkey",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.5.0",
   "type": "module",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
-    "dev": "NODE_OPTIONS=\"--max-old-space-size=4096\" vite build --watch --mode development",
-    "dev:firefox": "TARGET_BROWSER=firefox NODE_OPTIONS=\"--max-old-space-size=4096\" vite build --watch --mode development",
-    "build": "tsc -b && NODE_OPTIONS=\"--max-old-space-size=4096\" vite build && rm -rf dist/.vite",
-    "build:firefox": "tsc -b && TARGET_BROWSER=firefox NODE_OPTIONS=\"--max-old-space-size=4096\" vite build && rm -rf dist-firefox/.vite",
-    "build:vivaldi": "tsc -b && TARGET_BROWSER=vivaldi NODE_OPTIONS=\"--max-old-space-size=4096\" vite build && node scripts/prepare-vivaldi.mjs",
+    "dev": "NODE_OPTIONS=\"--max-old-space-size=4096\" vite build --configLoader runner --watch --mode development",
+    "dev:firefox": "TARGET_BROWSER=firefox NODE_OPTIONS=\"--max-old-space-size=4096\" vite build --configLoader runner --watch --mode development",
+    "build": "tsc -b && NODE_OPTIONS=\"--max-old-space-size=4096\" vite build --configLoader runner && rm -rf dist/.vite",
+    "build:firefox": "tsc -b && TARGET_BROWSER=firefox NODE_OPTIONS=\"--max-old-space-size=4096\" vite build --configLoader runner && rm -rf dist-firefox/.vite",
+    "build:vivaldi": "tsc -b && TARGET_BROWSER=vivaldi NODE_OPTIONS=\"--max-old-space-size=4096\" vite build --configLoader runner && node scripts/prepare-vivaldi.mjs",
     "package:vivaldi": "python3 scripts/package-vivaldi.py",
     "lint": "eslint .",
     "test": "pnpm run test:unit && pnpm run test:e2e",
-    "test:e2e": "vitest run --config vitest.config.e2e.ts",
-    "test:unit": "vitest run --config vitest.config.unit.ts",
+    "test:e2e": "vitest run --config vitest.config.e2e.ts --configLoader runner",
+    "test:unit": "vitest run --config vitest.config.unit.ts --configLoader runner",
     "bump-version": "node scripts/bump-version.js"
   },
   "engines": {

@@ -13,10 +13,6 @@ const manifest = targetBrowser === 'firefox'
         name: 'ShieldMonkey',
         description: 'A Security-First, Open-Source Userscript Manager.',
         default_locale: undefined,
-        // Static rules are compiled into _metadata inside the unpacked folder.
-        // Android's document-provider loader can then reject that folder.
-        // The background worker installs the same rules dynamically instead.
-        declarative_net_request: undefined,
       }
     : manifestChrome;
 

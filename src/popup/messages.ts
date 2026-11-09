@@ -3,6 +3,7 @@
 export const popupTexts: Record<'en' | 'ja', Record<string, string>> = {
     en: {
         appName: 'Shieldmonkey',
+        worldLimitNotice: 'More than 10 scripts match this page. Your browser may stop some scripts to preserve isolation.',
         extensionLabel: 'Extension',
         enabled: 'Enabled',
         disabled: 'Disabled',
@@ -21,6 +22,7 @@ export const popupTexts: Record<'en' | 'ja', Record<string, string>> = {
     },
     ja: {
         appName: 'Shieldmonkey',
+        worldLimitNotice: 'このページには10本を超えるスクリプトが一致します。個別の隔離を保つため、一部が実行されない場合があります。',
         extensionLabel: '拡張機能',
         enabled: '有効',
         disabled: '無効',

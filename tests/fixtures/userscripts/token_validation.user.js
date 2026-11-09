@@ -33,7 +33,7 @@
             await GM_setValue("testKey2", "testValue2");
             console.log("[UNEXPECTED] GM_setValue succeeded after invalidation");
         } catch (e) {
-            if (e.includes("Access denied") || e.includes("Invalid script token")) {
+            if (/revoked|not ready|closed|Access denied|Invalid script token/i.test(String(e))) {
                 console.log("[PASS] GM_setValue failed as expected: " + e);
             } else {
                 console.log("[FAIL] GM_setValue failed with unexpected error: " + e);

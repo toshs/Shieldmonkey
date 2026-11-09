@@ -10,17 +10,17 @@ import { setupAutoBackup } from './backup';
 
 // Runs on every worker start, including unpacked reloads and re-enabling.
 // Configure protection independently of userscript permission/registration.
-void setupSecurityRules();
+void setupSecurityRules().catch(error => console.error('Protection rules failed:', error));
 
 // Initialize userscripts environment
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log("Background Service Worker v0.2.1-debug loaded");
   await reloadAllScripts().catch(error => console.error('Could not reload all scripts:', error));
   await checkUserScriptsPermission();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  checkUserScriptsPermission();
+  void reloadAllScripts().catch(error => console.error('Could not register scripts:', error));
+  void checkUserScriptsPermission();
 });
 
 // Setup all listeners

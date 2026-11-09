@@ -1,57 +1,10 @@
-import { initBridge } from '../host/bridge';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import OptionsRouter from './Router';
+import { I18nProvider } from './i18n/I18nContext';
+import './base.css';
+import './index.css';
 
-// Initialize bridge
-initBridge();
-
-// Set body styles
-document.body.style.margin = '0';
-document.body.style.padding = '0';
-document.body.style.width = '100vw';
-document.body.style.height = '100dvh';
-document.body.style.overflow = 'hidden';
-
-// Create iframe
-const iframe = document.createElement('iframe');
-const hash = window.location.hash || '#/options';
-iframe.src = chrome.runtime.getURL('src/sandbox/index.html') + window.location.search + hash;
-iframe.style.width = '100%';
-iframe.style.height = '100%';
-iframe.style.border = 'none';
-document.body.appendChild(iframe);
-
-// Android can pan the host viewport above the keyboard while the editor lives
-// in a sandboxed iframe. Share only the visible top edge with the editor.
-const forwardViewport = () => {
-    const visibleTop = Math.max(
-        0,
-        window.visualViewport?.pageTop || 0,
-        window.scrollY,
-        -iframe.getBoundingClientRect().top,
-    );
-    iframe.contentWindow?.postMessage({ type: 'HOST_VIEWPORT', top: visibleTop }, '*');
-};
-iframe.addEventListener('load', forwardViewport);
-window.visualViewport?.addEventListener('resize', forwardViewport);
-window.visualViewport?.addEventListener('scroll', forwardViewport);
-window.addEventListener('scroll', forwardViewport);
-
-// Sync hash changes from Host to Iframe
-window.addEventListener('hashchange', () => {
-    // Only forward if it's different
-    if (iframe.contentWindow) {
-        iframe.contentWindow.postMessage({ type: 'NAVIGATE', path: window.location.hash }, '*');
-    }
-});
-
-// Listen for hash updates from Iframe
-window.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'URL_CHANGED' && event.data.hash) {
-        // Prevent update loop: only alter location.hash if it is different
-        // Actually modifying window.location.hash triggers hashchange, 
-        // which sends NAVIGATE to iframe again.
-        // We use history.replaceState to avoid the hashchange event and history pollution
-        if (window.location.hash !== event.data.hash) {
-            window.history.replaceState(null, '', event.data.hash);
-        }
-    }
-});
+createRoot(document.getElementById('root')!).render(
+  <StrictMode><I18nProvider><OptionsRouter /></I18nProvider></StrictMode>
+);

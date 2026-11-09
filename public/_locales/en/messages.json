@@ -363,5 +363,17 @@
   "enabled": {"message": "Enabled"},
   "disabled": {"message": "Disabled"},
   "mobileNewScript": {"message": "New script"},
-  "mobileSelect": {"message": "Select"}
+  "mobileSelect": {"message": "Select"},
+  "manualImportTitle": {
+    "message": "Manual script import"
+  },
+  "manualImportNotice": {
+    "message": "Link installation and URL updates are no longer supported. Import a file, paste code, or use your local workspace."
+  },
+  "approvalPending": {
+    "message": "Review required"
+  },
+  "worldLimitNotice": {
+    "message": "More than 10 scripts match this page. Your browser may stop some scripts to preserve isolation."
+  }
 }
