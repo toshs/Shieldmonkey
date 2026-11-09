@@ -106,3 +106,30 @@ test('Mobile editor keeps one save button when the viewport moves above the keyb
     expect((resizedSave?.y || 0) + (resizedSave?.height || 0)).toBeLessThanOrEqual(420);
     expect(await frame.locator('iframe').count()).toBe(0);
 });
+
+
+test('Mobile settings and help can scroll their last element above the bottom navigation', async () => {
+    for (const viewport of [{ width: 411, height: 766 }, { width: 844, height: 350 }]) {
+        await page.setViewportSize(viewport);
+        for (const route of ['settings', 'help']) {
+            await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/' + route));
+            await page.locator('.content-scroll').waitFor();
+            // Model a browser toolbar reducing the app's available height while vh stays larger.
+            await page.addStyleTag({ content: '#root { height: calc(100dvh - 100px); }' });
+            const bounds = await page.evaluate(() => {
+                const scroll = document.querySelector('.content-scroll')!;
+                scroll.scrollTop = scroll.scrollHeight;
+                return {
+                    last: scroll.lastElementChild!.lastElementChild!.getBoundingClientRect().bottom,
+                    scroll: scroll.getBoundingClientRect().bottom,
+                    nav: document.querySelector('.bottom-nav')!.getBoundingClientRect().top,
+                    root: document.getElementById('root')!.getBoundingClientRect().bottom,
+                    app: document.querySelector('.app-container')!.getBoundingClientRect().bottom,
+                };
+            });
+            expect(bounds.app).toBeLessThanOrEqual(bounds.root + 1);
+            expect(bounds.scroll).toBeLessThanOrEqual(bounds.nav + 1);
+            expect(bounds.last).toBeLessThanOrEqual(bounds.nav - 15);
+        }
+    }
+});

@@ -77,12 +77,14 @@ const Scripts = () => {
     const [workspaceNotice, setWorkspaceNotice] = useState('');
     const [scanning, setScanning] = useState(false);
     const [workspaceLinked, setWorkspaceLinked] = useState(false);
+    const [workspaceNeedsAccess, setWorkspaceNeedsAccess] = useState(false);
     const didInitialScan = useRef(false);
     const scanWorkspace = useCallback(async () => {
         setScanning(true);
         try {
             const status = await app.call('GET_BACKUP_DIR_STATUS');
             setWorkspaceLinked(!!status.name);
+            setWorkspaceNeedsAccess(!!status.name && status.permission !== 'granted');
             if (!status.name) {
                 setWorkspaceNotice('');
                 setConflicts([]);
@@ -111,6 +113,18 @@ const Scripts = () => {
         didInitialScan.current = true;
         void scanWorkspace();
     }, [scanWorkspace]);
+
+    const reconnectWorkspace = async () => {
+        setScanning(true);
+        try {
+            if (!await app.call('REQUEST_BACKUP_DIR_ACCESS')) throw new Error(t('backupFolderAccessNeeded'));
+            await scanWorkspace();
+        } catch (error) {
+            setWorkspaceNotice((error as Error).message);
+        } finally {
+            setScanning(false);
+        }
+    };
 
     const createFolder = async () => {
         try {
@@ -341,7 +355,10 @@ const Scripts = () => {
                         </div>
                     </div>
                 </div>
-                {workspaceNotice && <p className="scripts-workspace-notice" role="status">{workspaceNotice}</p>}
+                {workspaceNotice && <div className="scripts-workspace-notice" role="status">
+                    <p>{workspaceNotice}</p>
+                    {workspaceNeedsAccess && <button className="btn-secondary" onClick={reconnectWorkspace} disabled={scanning}>{t('btnAllowBackupFolder')}</button>}
+                </div>}
 
                 {conflicts.length > 0 && (
                     <section aria-label={t('workspaceConflictSection')} style={{ padding: '8px 24px', maxHeight: '38vh', overflow: 'auto', flexShrink: 0, borderBlock: '1px solid var(--border-color)' }}>

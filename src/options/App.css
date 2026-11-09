@@ -56,7 +56,7 @@
 body {
   margin: 0;
   width: 100%;
-  height: 100vh;
+  height: 100%;
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
   background-color: var(--bg-color);
   color: var(--text-primary);
@@ -64,7 +64,7 @@ body {
 
 .app-container {
   display: flex;
-  height: 100vh;
+  height: 100%;
   width: 100%;
 }
 
@@ -203,6 +203,8 @@ button.mobile-toggle-btn,
 /* Content Area */
 .main-content {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background-color: var(--content-bg);
@@ -212,6 +214,7 @@ button.mobile-toggle-btn,
 
 .content-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 32px 48px 100px 48px; /* Added bottom padding for overlay */
 }
@@ -707,11 +710,8 @@ th.col-actions {
 /* Bottom Navigation (Mobile Only) */
 .bottom-nav {
     display: none; /* Hidden on desktop */
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 60px;
+    flex-shrink: 0;
+    height: calc(60px + env(safe-area-inset-bottom));
     background-color: var(--sidebar-bg);
     border-top: 1px solid var(--border-color);
     z-index: 50;
@@ -750,7 +750,7 @@ th.col-actions {
     }
 
     .main-content {
-        padding-bottom: 70px; /* Space for bottom nav */
+        padding-bottom: 0; /* Bottom navigation occupies its own layout row. */
     }
 
     .script-editor-page > .main-content {
@@ -758,7 +758,7 @@ th.col-actions {
     }
 
     .content-scroll {
-        padding: 16px !important; /* Symetric and smaller padding on mobile */
+        padding: 16px 16px 24px !important;
     }
 
     .page-header {
@@ -953,9 +953,8 @@ button {
     .select-visible { grid-column: 1 / -1; }
 }
 @media (max-height: 450px) and (pointer: coarse) {
-    .bottom-nav { height: 48px; }
+    .bottom-nav { height: calc(48px + env(safe-area-inset-bottom)); }
     .bottom-nav .nav-item { flex-direction: row; gap: 8px; }
-    .main-content { padding-bottom: 54px; }
     .scripts-page { padding-top: 12px !important; }
 }
 

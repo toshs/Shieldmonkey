@@ -108,3 +108,40 @@ test('Folder move, external edit, and individual history restore', async () => {
         return (data.scripts as { code: string }[])[0]?.code.includes('console.log(1)');
     })).toBe(true);
 });
+
+
+test('Remembered workspace restores persistent access and reconnects temporary access without another picker', async () => {
+    for (const persistent of [true, false]) {
+        const page = await browserContext.newPage();
+        await page.addInitScript(createMockWorkspaceHandle() + `
+            (() => {
+                const root = window.__mockBackupDirectoryHandle;
+                let permission = 'prompt';
+                window.__workspaceRequests = 0;
+                window.__workspacePickers = 0;
+                root.queryPermission = async () => permission;
+                root.requestPermission = async () => {
+                    window.__workspaceRequests++;
+                    if (!${persistent} && !navigator.userActivation.isActive) throw new DOMException('Click required', 'SecurityError');
+                    permission = 'granted';
+                    return permission;
+                };
+                window.showDirectoryPicker = async () => { window.__workspacePickers++; throw Error('Must reuse the saved folder'); };
+            })();
+        `);
+        await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/settings'));
+        await page.getByText('mock-backup-dir', { exact: true }).waitFor();
+        if (!persistent) await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+        await expect.poll(async () => page.getByRole('button', { name: 'Reconnect', exact: true }).count()).toBe(0);
+        const state = await page.evaluate(() => {
+            const w = window as unknown as { __workspaceRequests: number; __workspacePickers: number };
+            return { requests: w.__workspaceRequests, pickers: w.__workspacePickers };
+        });
+        expect(state.requests).toBe(persistent ? 1 : 2);
+        expect(state.pickers).toBe(0);
+        // Access to a different workspace still requires Restore; reconnect must not overwrite it.
+        expect(await page.getByRole('button', { name: /Restore from backup folder/i }).isEnabled()).toBe(true);
+        expect(await page.getByText(/Restore this workspace from Settings before editing it/).count()).toBe(0);
+        await page.close();
+    }
+});

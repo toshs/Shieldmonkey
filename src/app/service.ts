@@ -4,7 +4,7 @@ import {
     handleListWorkspaceHistory, handleReadWorkspaceHistory, handleRestoreWorkspaceHistory,
 } from './workspace';
 import { processScriptContent } from '../utils/importManager';
-import { getDirectoryHandle } from '../utils/backupStorage';
+import { getDirectoryHandle, restoreDirectoryPermission } from '../utils/backupStorage';
 import type { ActionType, AppActionMap, TypedAppAction } from './types';
 import { confirmApproval } from './approval';
 import { publicScript } from '../shared/policy';
@@ -116,7 +116,7 @@ async function handleImportDirectory() {
 async function triggerAutoBackup() {
     const handle = await getDirectoryHandle();
     if (!handle) return; // Download backups are serialized by the background worker.
-    if (await handle.queryPermission({ mode: 'readwrite' }) === 'granted') {
+    if (await restoreDirectoryPermission(handle) === 'granted') {
         const result = await handleScanWorkspace();
         if (result.conflicts.length) throw new Error('Resolve workspace conflicts before syncing.');
         await chrome.storage.local.set({ lastBackupTime: new Date().toISOString() });

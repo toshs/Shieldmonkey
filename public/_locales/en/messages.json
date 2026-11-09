@@ -129,7 +129,7 @@
   "sectionBackupDir": { "message": "Backup Directory" },
   "noDirSelected": { "message": "No directory selected" },
   "btnSelect": { "message": "Select" },
-  "btnAllowBackupFolder": { "message": "Allow folder access" },
+  "btnAllowBackupFolder": { "message": "Reconnect" },
   "backupFolderAccessNeeded": { "message": "Allow access to the backup folder to continue saving there." },
   "backupFolderMobileNote": { "message": "On Android, folder access may need to be allowed again after reopening. Until then, automatic backups download as JSON files." },
   "sectionAutoBackup": { "message": "Automatic Backup" },
@@ -376,5 +376,6 @@
   "worldLimitNotice": {
     "message": "More than 10 scripts match this page. Your browser may stop some scripts to preserve isolation."
   },
+  "workspaceAccessPersistence": { "message": "The selected folder is remembered. Choose “Allow on every visit” if your browser offers it. If temporary access expires, use Reconnect without selecting the folder again." },
   "uiLoading": { "message": "Loading…" }
 }

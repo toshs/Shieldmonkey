@@ -1,4 +1,4 @@
-import { saveDirectoryHandle, getDirectoryHandle, verifyPermission } from '../utils/backupStorage';
+import { saveDirectoryHandle, getDirectoryHandle, verifyPermission, restoreDirectoryPermission, requestSavedDirectoryAccess } from '../utils/backupStorage';
 import {
     initializeWorkspace, listWorkspaceHistory, readWorkspaceHistory, readWorkspaceState,
     resolveWorkspaceConflict, restoreCurrentWorkspace, restoreWorkspaceHistory,
@@ -23,7 +23,7 @@ async function applyLibrary(scripts: Script[], folders: string[]): Promise<void>
 async function requireHandle(write = true): Promise<FileSystemDirectoryHandle> {
     const handle = await getDirectoryHandle();
     if (!handle) throw new Error('No workspace folder selected.');
-    if (!await verifyPermission(handle, write)) throw new Error('Folder access is required. Grant access in Settings.');
+    if (await restoreDirectoryPermission(handle, write) !== 'granted') throw new Error('Folder access is required. Grant access in Settings.');
     return handle;
 }
 
@@ -73,7 +73,7 @@ export async function handleGetBackupDirStatus(): Promise<{
     let needsRestore = false;
     if (handle) {
         try {
-            permission = await handle.queryPermission({ mode: 'readwrite' });
+            permission = await restoreDirectoryPermission(handle);
             if (permission === 'granted') {
                 const state = await readWorkspaceState(handle);
                 needsRestore = !!state && state.workspaceId !== workspaceId;
@@ -86,10 +86,8 @@ export async function handleGetBackupDirStatus(): Promise<{
     return { supported: true, name: handle?.name ?? null, permission, needsRestore, syncError: typeof workspaceSyncError === 'string' ? workspaceSyncError : null };
 }
 
-export async function handleRequestBackupDirAccess(): Promise<boolean> {
-    const handle = await getDirectoryHandle();
-    if (!handle) throw new Error('No workspace folder selected.');
-    return verifyPermission(handle, true);
+export function handleRequestBackupDirAccess(): Promise<boolean> {
+    return requestSavedDirectoryAccess();
 }
 
 async function scanWorkspaceUnlocked() {

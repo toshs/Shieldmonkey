@@ -129,7 +129,7 @@
   "sectionBackupDir": { "message": "バックアップ保存先" },
   "noDirSelected": { "message": "ディレクトリ未選択" },
   "btnSelect": { "message": "選択" },
-  "btnAllowBackupFolder": { "message": "フォルダーへのアクセスを許可" },
+  "btnAllowBackupFolder": { "message": "再接続" },
   "backupFolderAccessNeeded": { "message": "保存先フォルダーへのアクセスを許可してください。" },
   "backupFolderMobileNote": { "message": "Androidでは再起動後にフォルダーへの再許可が必要な場合があります。許可するまでは自動バックアップをJSONファイルとしてダウンロードします。" },
   "sectionAutoBackup": { "message": "自動バックアップ" },
@@ -376,5 +376,6 @@
   "worldLimitNotice": {
     "message": "このページには10本を超えるスクリプトが一致します。個別の隔離を保つため、一部が実行されない場合があります。"
   },
+  "workspaceAccessPersistence": { "message": "接続先は記憶されます。ブラウザーに「毎回のアクセスを許可」が表示されたら選んでください。一時的な許可が切れた場合は「再接続」を押すだけで、フォルダーの選び直しは不要です。" },
   "uiLoading": { "message": "読み込み中…" }
 }

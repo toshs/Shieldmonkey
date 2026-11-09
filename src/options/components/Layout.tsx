@@ -56,16 +56,16 @@ const Layout = () => {
                 </div>
             </aside>
 
+            <main className="main-content">
+                <Outlet />
+            </main>
+
             {/* Mobile Bottom Navigation */}
             <nav className="bottom-nav">
                 <SidebarLink to="/options/scripts" icon={Terminal} label={t('navScripts')} />
                 <SidebarLink to="/options/settings" icon={Settings} label={t('navSettings')} />
                 <SidebarLink to="/options/help" icon={HelpCircle} label={t('navHelp')} />
             </nav>
-
-            <main className="main-content">
-                <Outlet />
-            </main>
         </div>
     );
 };

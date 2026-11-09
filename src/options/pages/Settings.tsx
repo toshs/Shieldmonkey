@@ -42,6 +42,7 @@ const Settings = () => {
         setBackupDirPermission(status.permission);
         setWorkspaceNeedsRestore(status.needsRestore);
         setWorkspaceSyncError(status.syncError);
+        return status;
     }, []);
 
     useEffect(() => {
@@ -66,7 +67,16 @@ const Settings = () => {
             if (changes.lastBackupTime) setLastBackupTime(typeof changes.lastBackupTime.newValue === 'string' ? changes.lastBackupTime.newValue : null);
             if (changes.lastBackupError) setLastBackupError(typeof changes.lastBackupError.newValue === 'string' ? changes.lastBackupError.newValue : null);
         });
-        return () => { removeListener(); };
+        const refreshWhenVisible = () => {
+            if (document.visibilityState === 'visible') void refreshBackupDirectoryStatus().catch(console.error);
+        };
+        window.addEventListener('focus', refreshWhenVisible);
+        document.addEventListener('visibilitychange', refreshWhenVisible);
+        return () => {
+            removeListener();
+            window.removeEventListener('focus', refreshWhenVisible);
+            document.removeEventListener('visibilitychange', refreshWhenVisible);
+        };
     }, [refreshBackupDirectoryStatus]);
 
     const handleSelectBackupDir = async () => {
@@ -100,13 +110,14 @@ const Settings = () => {
             setBackupMessage('');
             setIsBackupLoading(true);
             const granted = await app.call('REQUEST_BACKUP_DIR_ACCESS');
-            await refreshBackupDirectoryStatus();
+            const status = await refreshBackupDirectoryStatus();
             if (!granted) throw new Error(t('backupFolderAccessNeeded'));
-            if (!workspaceNeedsRestore) {
+            if (!status.needsRestore) {
                 const count = await app.call('RUN_BACKUP', { scripts, version: appVersion });
                 const time = new Date().toISOString();
                 await app.call('UPDATE_BACKUP_SETTINGS', { lastBackupTime: time });
                 setLastBackupTime(time);
+                setWorkspaceSyncError(null);
                 setBackupStatus('success');
                 setBackupMessage(t('savedScriptsMsg', [String(count)]));
             }
@@ -464,6 +475,7 @@ const Settings = () => {
                                                 <p style={{ margin: '0 0 8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                                                     {t('workspaceFolderDesc')}
                                                 </p>
+                                                <p style={{ margin: '0 0 8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('workspaceAccessPersistence')}</p>
                                                 {workspaceNeedsRestore && <p role="status">{t('workspaceSettingsNeedsRestore')}</p>}
                                                 {workspaceSyncError && <p role="alert" style={{ color: '#ef4444' }}>{workspaceSyncError}</p>}
                                                 {backupDirPermission !== 'granted' && (

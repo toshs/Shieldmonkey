@@ -11,6 +11,8 @@ interface GlobalWithMock {
 }
 
 const global = globalThis as typeof globalThis & GlobalWithMock;
+let sessionHandle: FileSystemDirectoryHandle | undefined;
+const restoredPermissions = new WeakMap<FileSystemDirectoryHandle, Map<string, Promise<PermissionState>>>();
 
 export async function initDB() {
     return openDB(DB_NAME, 1, {
@@ -36,6 +38,7 @@ export async function saveDirectoryHandle(handle: FileSystemDirectoryHandle): Pr
         } catch { /* Fall back to a fresh safety baseline. */ }
     }
     await db.put(STORE_NAME, handle, HANDLE_KEY);
+    sessionHandle = handle;
     // A fingerprint belongs to one folder. Selecting another folder must not
     // authorize overwriting a snapshot that was made elsewhere.
     if (!sameFolder) await db.delete(STORE_NAME, FINGERPRINT_KEY);
@@ -48,7 +51,14 @@ export async function getDirectoryHandle(): Promise<FileSystemDirectoryHandle | 
         return global.__mockBackupDirectoryHandle;
     }
     const db = await initDB();
-    return db.get(STORE_NAME, HANDLE_KEY);
+    const stored = await db.get(STORE_NAME, HANDLE_KEY) as FileSystemDirectoryHandle | undefined;
+    if (stored && sessionHandle && typeof stored.isSameEntry === 'function') {
+        try {
+            if (await stored.isSameEntry(sessionHandle)) return sessionHandle;
+        } catch { /* A moved or revoked folder must be checked again. */ }
+    }
+    sessionHandle = stored;
+    return stored;
 }
 
 export async function getBackupFingerprint(): Promise<string | undefined> {
@@ -75,4 +85,36 @@ export async function verifyPermission(handle: FileSystemDirectoryHandle, readWr
     }
 
     return false;
+}
+
+// A persisted grant can report "prompt" until requestPermission reactivates it.
+// Try once without user activation: a session-only grant must still be confirmed
+// by an explicit click. Do not request access from workers or hidden documents.
+export async function restoreDirectoryPermission(handle: FileSystemDirectoryHandle, readWrite = true): Promise<PermissionState> {
+    const options: FileSystemHandlePermissionDescriptor = { mode: readWrite ? 'readwrite' : 'read' };
+    const state = await handle.queryPermission(options);
+    if (state !== 'prompt' || typeof document === 'undefined' || document.visibilityState !== 'visible'
+        || navigator.userActivation?.isActive !== false) return state;
+    let attempts = restoredPermissions.get(handle);
+    if (!attempts) {
+        attempts = new Map();
+        restoredPermissions.set(handle, attempts);
+    }
+    let attempt = attempts.get(options.mode!);
+    if (!attempt) {
+        attempt = handle.requestPermission(options).catch(() => state);
+        attempts.set(options.mode!, attempt);
+    }
+    return attempt;
+}
+
+// Settings loads the handle before showing its reconnect button. Request access
+// synchronously on that handle, preserving the click's transient activation.
+export function requestSavedDirectoryAccess(): Promise<boolean> {
+    const request = (handle: FileSystemDirectoryHandle | undefined) => {
+        if (!handle) throw new Error('No workspace folder selected.');
+        return handle.requestPermission({ mode: 'readwrite' }).then(state => state === 'granted');
+    };
+    const handle = global.__mockBackupDirectoryHandle ?? sessionHandle;
+    return handle ? request(handle) : getDirectoryHandle().then(request);
 }
