@@ -9,7 +9,7 @@ const profile = await mkdtemp(path.join(tmpdir(), 'shieldmonkey-firefox-'));
 const context = await firefox.launchPersistentContext(profile, { headless: true, timeout: 30000,
     args: ['-start-debugger-server', '9225'], firefoxUserPrefs: {
         'devtools.debugger.remote-enabled': true, 'devtools.debugger.prompt-connection': false,
-        'devtools.chrome.enabled': true, 'extensions.webextensions.userScripts.enabled': true,
+        'devtools.chrome.enabled': true, 'extensions.htmlaboutaddons.recommendations.enabled': false, 'extensions.webextensions.userScripts.enabled': true,
     } });
 let remote;
 try {
@@ -17,7 +17,7 @@ try {
     await remote.installTemporaryAddon(path.resolve('dist-firefox'), false);
     // Set up the requested optional permission in this disposable browser profile.
     const manager = context.pages().find(page => page.url() === 'about:blank') || context.pages()[0];
-    await manager.goto('about:addons');
+    await manager.goto('about:addons', {waitUntil:'commit'});
     await manager.evaluate(async () => {
         const { ExtensionPermissions } = ChromeUtils.importESModule('resource://gre/modules/ExtensionPermissions.sys.mjs');
         await ExtensionPermissions.add('shieldmonkey@toshs.dev', {permissions:['userScripts'],origins:['<all_urls>']});

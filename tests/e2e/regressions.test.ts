@@ -58,22 +58,30 @@ test('invalid registration does not overwrite a saved script or enable a broken 
 });
 
 test('editor switches scripts and asks before discarding unsaved changes from navigation', async () => {
+    page.setDefaultTimeout(8000);
+    console.log('[editor-test] start');
     const worker = browserContext.serviceWorkers()[0];
     await worker.evaluate(async scripts => chrome.storage.local.set({ scripts }), [
         { id: 'editor-a', name: 'Editor A', code: scriptCode('Editor A'), enabled: true },
         { id: 'editor-b', name: 'Editor B', code: scriptCode('Editor B'), enabled: true }
     ]);
+    console.log('[editor-test] seeded');
     await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/scripts/editor-a'));
+    console.log('[editor-test] loaded A');
     const frame = page;
     await expect.poll(async () => frame.locator('.script-name-input').innerText()).toBe('Editor A');
+    console.log('[editor-test] saw A');
     await page.getByRole('button', { name: /Back to scripts/ }).click();
+    console.log('[editor-test] list');
     await page.getByRole('row').filter({ hasText: 'Editor B' }).getByRole('button', { name: /Edit/ }).click();
+    console.log('[editor-test] opened B');
     await expect.poll(async () => frame.locator('.script-name-input').innerText()).toBe('Editor B');
     expect(await frame.locator('.cm-content').innerText()).toContain('Editor B');
 
     const editor = frame.locator('.cm-content');
     await editor.click();
-    await editor.type(' // unsaved');
+    console.log('[editor-test] editor focused');
+    await editor.pressSequentially(' // unsaved');
     console.log('[editor-test] edited', await editor.innerText());
     await page.getByRole('button', { name: /Back to scripts/ }).click();
     console.log('[editor-test] back clicked');
@@ -93,6 +101,7 @@ test('editor switches scripts and asks before discarding unsaved changes from na
     await expect.poll(async () => page.url()).toMatch(/#\/options\/scripts$/);
     await page.getByRole('button', { name: /Edit/ }).first().click();
     await expect.poll(async () => frame.locator('.script-name-input').innerText()).toBe('Editor A');
+    console.log('[editor-test] saw A');
     expect(await frame.locator('.cm-content').innerText()).toContain('Editor A');
 });
 
