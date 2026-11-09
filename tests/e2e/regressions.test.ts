@@ -66,7 +66,8 @@ test('editor switches scripts and asks before discarding unsaved changes from na
     await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/scripts/editor-a'));
     const frame = page;
     await expect.poll(async () => frame.locator('.script-name-input').innerText()).toBe('Editor A');
-    await page.evaluate(() => { window.location.hash = '#/options/scripts/editor-b'; });
+    await page.getByRole('button', { name: /Back to scripts/ }).click();
+    await page.getByRole('row').filter({ hasText: 'Editor B' }).getByRole('button', { name: /Edit/ }).click();
     await expect.poll(async () => frame.locator('.script-name-input').innerText()).toBe('Editor B');
     expect(await frame.locator('.cm-content').innerText()).toContain('Editor B');
 
