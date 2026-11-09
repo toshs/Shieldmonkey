@@ -43,6 +43,9 @@ test('Options page - Install, Save, and Delete User Script', async () => {
     const saveBtn = frame.getByRole('button', { name: /Save/i });
     await expect.poll(async () => saveBtn.isEnabled()).toBe(true);
     await saveBtn.click();
+    await page.locator('.permission-dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(await page.evaluate(async () => (await chrome.storage.local.get('scripts')).scripts)).toHaveLength(0);
+    await saveBtn.click();
     await page.locator('.permission-dialog').getByRole('button', { name: 'Allow', exact: true }).click();
     await expect.poll(async () => frame.getByRole('button', { name: /Saved|保存済み/ }).isDisabled()).toBe(true);
 

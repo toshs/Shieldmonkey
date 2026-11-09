@@ -348,66 +348,9 @@ export async function injectScriptToStorage(page: Page, scriptPath: string) {
     if (!response?.success) throw new Error(response?.error || 'Fixture save failed.');
 }
 
-// Helper: Install script via mock backup restore
+// GM behavior tests use an explicitly approved fixture in a fresh profile.
+// File selection, restore and approval UI are covered by their own E2E tests.
 export async function installScriptFromPath(page: Page, extensionId: string, scriptPath: string) {
-    const filename = path.basename(scriptPath);
-    const content = readFileSync(scriptPath, 'utf-8');
-
-    // 1. Setup mock handle with the script content
-    await page.addInitScript(createMockWorkspaceHandle([{ name: filename, content }]));
-
-    // 2. Navigate to settings to trigger restore
-    const settingsUrl = `chrome-extension://${extensionId}/src/options/index.html#/settings`;
-    if (page.url() === settingsUrl) {
-        await page.reload();
-    } else {
-        await page.goto(settingsUrl);
-    }
-
-    // Wait for page to fully initialize, especially important in CI environments
-    await page.waitForTimeout(TIMEOUT.MEDIUM);
-
-    // 3. Trigger restore
-    const frame = page;
-    const selectBtn = frame.getByRole('button', { name: /Select$/i });
-    await selectBtn.waitFor({ state: 'visible' });
-    await selectBtn.click();
-
-    const restoreBtn = frame.getByRole('button', { name: /Restore from backup folder/i });
-    await restoreBtn.waitFor({ state: 'visible' });
-    await restoreBtn.click();
-
-    // 4. Confirm modal
-    const modal = frame.locator('.modal-content');
-    await modal.waitFor({ state: 'visible' });
-    // Note: Modal might be in a Portal? If so, where is it rendered?
-    // In React App, usually at document.body or a specific root.
-    // If it is in the iframe, frame locator works.
-    const confirmBtn = modal.getByRole('button', { name: /OK/i });
-    await confirmBtn.click();
-
-    // 5. Wait for success modal
-    const successModal = frame.locator('.modal-content').filter({ hasText: /Restore Complete|Restore Successful/i }); // Matches translation keys roughly
-    // Or better, just wait for any modal that says "Complete" or "Success"
-    // The previous modal was "Confirm Restore", now we expect "Restore Complete"
-
-    // We already clicked OK on confirm. Use a slightly more robust wait.
-    // Wait for the restore process to finish (loading false)
-    // But easier to wait for the success message in the UI if possible.
-
-    // Settings.tsx: showModal('success', t('restoreCompleteTitle'), ...)
-    // we need to find the success modal.
-
-    // Let's assume the "Confirm" modal disappears and a new "Success" modal appears.
-    // Or the same modal updates.
-
-    await successModal.waitFor({ state: 'visible', timeout: 5000 });
-    await successModal.getByRole('button', { name: /OK/i }).click();
-
-    // 6. Verification: Check if script is in list
-    // navigate to scripts page? No, let's just wait a bit.
     await page.goto(getExtensionUrl(extensionId, '/src/options/index.html#/options/scripts'));
-    await page.getByRole('switch').first().click();
-    await page.locator('.permission-dialog').getByRole('button', { name: 'Allow', exact: true }).click();
-    await page.waitForTimeout(500);
+    await injectScriptToStorage(page, scriptPath);
 }
