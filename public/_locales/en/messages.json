@@ -375,5 +375,6 @@
   },
   "worldLimitNotice": {
     "message": "More than 10 scripts match this page. Your browser may stop some scripts to preserve isolation."
-  }
+  },
+  "uiLoading": { "message": "Loading…" }
 }

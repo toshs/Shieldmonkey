@@ -73,17 +73,23 @@ test('editor switches scripts and asks before discarding unsaved changes from na
     const editor = frame.locator('.cm-content');
     await editor.click();
     await editor.type(' // unsaved');
+    console.log('[editor-test] edited', await editor.innerText());
     await page.getByRole('button', { name: /Back to scripts/ }).click();
+    console.log('[editor-test] back clicked');
     const modal = frame.locator('.modal-content');
     await modal.waitFor({ state: 'visible' });
     await expect.poll(async () => page.url()).toContain('#/options/scripts/editor-b');
+    console.log('[editor-test] modal visible');
     await modal.locator('.modal-close').click();
+    console.log('[editor-test] cancelled');
     expect(await editor.innerText()).toContain('unsaved');
 
     await page.getByRole('button', { name: /Back to scripts/ }).click();
     await modal.waitFor({ state: 'visible' });
+    console.log('[editor-test] second modal');
     await modal.getByRole('button', { name: 'OK' }).click();
-    await expect.poll(async () => page.url()).toContain('#/options/scripts');
+    console.log('[editor-test] confirmed', page.url());
+    await expect.poll(async () => page.url()).toMatch(/#\/options\/scripts$/);
     await page.getByRole('button', { name: /Edit/ }).first().click();
     await expect.poll(async () => frame.locator('.script-name-input').innerText()).toBe('Editor A');
     expect(await frame.locator('.cm-content').innerText()).toContain('Editor A');

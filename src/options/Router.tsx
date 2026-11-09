@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { createHashRouter, RouterProvider, Navigate, useLocation } from 'react-router-dom';
 import App from './App';
+import { useI18n } from './i18n/I18nContext';
 
 function LegacyRedirect() {
   const location = useLocation();
@@ -12,5 +13,6 @@ const router = createHashRouter([
   { path: '/*', element: <LegacyRedirect /> },
 ]);
 export default function OptionsRouter() {
-  return <Suspense fallback={null}><RouterProvider router={router} /></Suspense>;
+  const { t } = useI18n();
+  return <Suspense fallback={<div role="status" style={{ height: '100%', display: 'grid', placeItems: 'center' }}>{t('uiLoading')}</div>}><RouterProvider router={router} /></Suspense>;
 }

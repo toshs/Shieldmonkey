@@ -87,7 +87,7 @@ const ScriptEditor = () => {
     useEffect(() => {
         if (!isMobile) return;
         const ownViewport = window.visualViewport;
-        const updatePosition = () => setVisibleViewportTop(value => Math.max(value, ownViewport?.pageTop || 0, window.scrollY));
+        const updatePosition = () => setVisibleViewportTop(Math.max(0, ownViewport?.pageTop || 0, window.scrollY));
         updatePosition();
         ownViewport?.addEventListener('scroll', updatePosition);
         ownViewport?.addEventListener('resize', updatePosition);
@@ -699,20 +699,20 @@ const ScriptEditor = () => {
                             )}
 
                             {!showFloatingSave && <button
-                                className={`btn-primary editor-save-button ${!isDirty && !isSaving ? 'is-saved' : ''}`}
+                                className={`btn-primary editor-save-button ${!isDirty && !reviewPending && !isSaving ? 'is-saved' : ''}`}
                                 onClick={handleSave}
                                 disabled={isSaving || (!isDirty && !reviewPending)}
                                 aria-label={t(isSaving ? 'editorBtnSaving' : reviewPending ? 'approvalPending' : isDirty ? 'editorBtnSave' : 'editorSaved')}
                             >
-                                {isSaving ? <Loader size={17} className="icon-spin" /> : isDirty ? <Save size={17} /> : <Check size={17} />}
+                                {isSaving ? <Loader size={17} className="icon-spin" /> : reviewPending ? <Shield size={17} /> : isDirty ? <Save size={17} /> : <Check size={17} />}
                                 <span>{t(isSaving ? 'editorBtnSaving' : reviewPending ? 'approvalPending' : isDirty ? 'editorBtnSave' : 'editorSaved')}</span>
                             </button>}
                         </div>
                     </div>
                 </header>
-                <span className="sr-only" role="status">{t(isSaving ? 'editorBtnSaving' : isDirty ? 'editorUnsaved' : 'editorSaved')}</span>
-                {showFloatingSave && <button className={`btn-primary editor-floating-save ${!isDirty && !isSaving ? 'is-saved' : ''}`} style={{ top: visibleViewportTop + 8 }} onClick={handleSave} disabled={isSaving || (!isDirty && !reviewPending)}>
-                    {isSaving ? <Loader size={17} className="icon-spin" /> : isDirty ? <Save size={17} /> : <Check size={17} />}
+                <span className="sr-only" role="status">{t(isSaving ? 'editorBtnSaving' : reviewPending ? 'approvalPending' : isDirty ? 'editorUnsaved' : 'editorSaved')}</span>
+                {showFloatingSave && <button className={`btn-primary editor-floating-save ${!isDirty && !reviewPending && !isSaving ? 'is-saved' : ''}`} style={{ top: visibleViewportTop + 8 }} onClick={handleSave} disabled={isSaving || (!isDirty && !reviewPending)}>
+                    {isSaving ? <Loader size={17} className="icon-spin" /> : reviewPending ? <Shield size={17} /> : isDirty ? <Save size={17} /> : <Check size={17} />}
                     {t(isSaving ? 'editorBtnSaving' : reviewPending ? 'approvalPending' : isDirty ? 'editorBtnSave' : 'editorSaved')}
                 </button>}
                 {copyNotice && <div className="editor-copy-notice" role="status">{copyNotice}</div>}

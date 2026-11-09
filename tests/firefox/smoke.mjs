@@ -16,7 +16,7 @@ try {
     remote = await connectWithMaxRetries({ port: 9225 });
     await remote.installTemporaryAddon(path.resolve('dist-firefox'), false);
     // Set up the requested optional permission in this disposable browser profile.
-    const manager = await context.newPage();
+    const manager = context.pages().find(page => page.url() === 'about:blank') || context.pages()[0];
     await manager.goto('about:addons');
     await manager.evaluate(async () => {
         const { ExtensionPermissions } = ChromeUtils.importESModule('resource://gre/modules/ExtensionPermissions.sys.mjs');
@@ -29,7 +29,8 @@ try {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.ok(page, 'The extension must open its permission help page on first installation.');
-    const origin = new URL(page.url()).origin;
+    const extensionUrl = new URL(page.url());
+    const origin = extensionUrl.protocol + '//' + extensionUrl.host;
     await page.goto(origin + '/src/options/index.html#/options/scripts');
     await page.locator('.scripts-page').waitFor();
     assert.equal(await page.locator('iframe').count(), 0);

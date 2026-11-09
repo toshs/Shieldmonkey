@@ -150,8 +150,8 @@
         GM_openInTab: openInTab, GM_closeTab: closeTab, GM_download: download, GM_notification: notification, GM_setClipboard: setClipboard };
     for (const [name, fn] of Object.entries(bindings)) if (permitted(name) || (name === 'GM_removeValueChangeListener' && permitted('GM_addValueChangeListener'))) scope[name] = fn;
     scope.GM_addStyle = addStyle; scope.GM_addElement = addElement; scope.GM_log = GM.log;
-    const unsupported = () => { throw new Error('This GM API is not supported by ShieldMonkey.'); };
     for (const name of ['getResourceText', 'getResourceURL', 'getTab', 'saveTab', 'getTabs', 'webRequest', 'cookie', 'registerMenuCommand', 'unregisterMenuCommand', 'xmlhttpRequest']) {
+        const unsupported = () => { throw new Error('GM_' + name + ' is not supported by ShieldMonkey.'); };
         GM[name] = unsupported;
         if (name !== 'xmlhttpRequest' || granted.has('GM_xmlhttpRequest')) scope['GM_' + name] = unsupported;
     }
