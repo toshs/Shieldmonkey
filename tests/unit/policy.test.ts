@@ -32,6 +32,12 @@ describe('script permission policy', () => {
         expect(needsApproval(old, old)).toBe(false);
         expect(protectScript({ ...old, enabled: false }, old).pendingApproval).toBe(false);
     });
+    it('never records unsupported API names as granted authority', () => {
+        const script = protectScript({ ...candidate, code: code('GM_futureApi') }, undefined, true);
+        expect(script.grantedPermissions).toEqual([]);
+        expect(needsApproval(script, script)).toBe(false);
+        expect(script.pendingApproval).toBe(false);
+    });
     it('does not export live credentials or profile-local approvals', () => {
         const script = protectScript(candidate, undefined, true);
         const exported = exportScript(script);

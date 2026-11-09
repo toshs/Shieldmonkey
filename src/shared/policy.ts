@@ -23,7 +23,7 @@ export function scopeFor(code: string): ApprovedScope {
 export function needsApproval(script: Pick<Script, 'code'>, previous?: Script): boolean {
     if (!previous?.approvedScope) return true;
     const granted = new Set((previous.grantedPermissions ?? []).map(canonicalGrant));
-    return requestedGrants(script.code).some(grant => !granted.has(grant)) ||
+    return requestedGrants(script.code).some(grant => SUPPORTED_GRANTS.has(grant) && !granted.has(grant)) ||
         (['match', 'include', 'exclude'] as const).some(key => JSON.stringify(scopeFor(script.code)[key]) !== JSON.stringify(previous.approvedScope![key]));
 }
 export function hasGrant(grants: string[], operation: string): boolean {
@@ -48,7 +48,7 @@ export function validateScript(value: unknown): asserts value is Script {
 export function protectScript(input: Script, previous: Script | undefined, approved = false): Script {
     validateScript(input);
     const metadata = parseMetadata(input.code);
-    const requested = requestedGrants(input.code);
+    const requested = requestedGrants(input.code).filter(grant => SUPPORTED_GRANTS.has(grant));
     const pending = !approved && needsApproval(input, previous);
     const grants = approved ? requested : requested.filter(grant => (previous?.grantedPermissions ?? []).map(canonicalGrant).includes(grant));
     const enabled = !pending && input.enabled !== false;
