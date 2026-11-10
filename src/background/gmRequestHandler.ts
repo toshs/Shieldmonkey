@@ -4,11 +4,12 @@ import { canonicalGrant, hasGrant } from '../shared/policy';
 import { GM_PORT, type GMClientMessage, type GMServerMessage } from '../shared/gm';
 import { isScriptMatchingUrl } from '../utils/scriptMatcher';
 import { stateReady } from './state';
+import { acknowledgeNotificationClick, clearSourceNotifications, createGMNotification, registerNotificationSource } from './notifications';
 
 interface Session { port: chrome.runtime.Port; scriptId: string; token: string; origin: string; url: string; sender: chrome.runtime.MessageSender; initialized: boolean }
 const sessions = new Set<Session>();
 let writeQueue: Promise<unknown> = Promise.resolve();
-function send(session: Session, message: GMServerMessage) { try { session.port.postMessage(message); } catch { sessions.delete(session); } }
+function send(session: Session, message: GMServerMessage) { try { session.port.postMessage(message); } catch { sessions.delete(session); clearSourceNotifications(session); try { session.port.disconnect(); } catch { /* Already closed. */ } } }
 function prefix(session: Session) { return 'gmv1:' + JSON.stringify([session.scriptId, session.origin]) + ':'; }
 async function authenticate(session: Session): Promise<Script> {
     await stateReady;
@@ -16,6 +17,19 @@ async function authenticate(session: Session): Promise<Script> {
     const script = (data.scripts as Script[] | undefined)?.find(script => script.id === session.scriptId);
     if (!allowed || data.extensionEnabled === false || !script || !script.enabled || script.pendingApproval || !script.token || script.token !== session.token || !isScriptMatchingUrl(script.code, session.url)) throw new Error('Script access revoked.');
     return script;
+}
+function notificationSource(session: Session) {
+    return {
+        key: session, scriptId: session.scriptId, token: session.token,
+        tabId: session.sender.tab!.id!, frameId: session.sender.frameId ?? 0,
+        documentId: session.sender.documentId, origin: session.origin,
+        authorize: async () => {
+            const current = await authenticate(session);
+            if (!sessions.has(session) || !hasGrant(current.grantedPermissions || [], 'GM_notification')) throw new Error('Notification access revoked.');
+            return current;
+        },
+        send: (message: GMServerMessage) => send(session, message),
+    };
 }
 function key(value: unknown): string {
     if (typeof value !== 'string' || !value || value.length > 4096) throw new Error('Invalid value key.');
@@ -86,16 +100,19 @@ async function execute(session: Session, operation: string, input: unknown): Pro
             return chrome.downloads.download({ url: validateGMUrl(data.url, 'download', session.origin), filename: data.name as string | undefined, saveAs: false, conflictAction: 'uniquify' });
         }
         case 'GM_notification': {
-            if (typeof data.text !== 'string' || (data.title !== undefined && typeof data.title !== 'string')) throw new Error('Invalid notification.');
-            const iconUrl = typeof data.image === 'string' && /^data:image\/(png|jpeg|gif|webp);base64,/.test(data.image) ? data.image : chrome.runtime.getURL('icons/icon48.png');
-            return chrome.notifications.create({ type: 'basic', iconUrl, title: data.title as string || script.name, message: data.text });
+            if (data.action === 'click') return acknowledgeNotificationClick(session, data);
+            if (data.action !== undefined) throw new Error('Invalid notification action.');
+            return createGMNotification(notificationSource(session), data);
         }
         default: throw new Error('Unsupported GM API: ' + operation);
     }
 }
 export function notifyUrlChange(tabId: number, frameId: number, url: string) {
     for (const session of sessions) {
-        if (session.sender.tab?.id === tabId && session.sender.frameId === frameId) { session.url = url; send(session, { type: 'URL_CHANGED', url }); }
+        if (session.sender.tab?.id === tabId && session.sender.frameId === frameId) {
+            session.url = url; send(session, { type: 'URL_CHANGED', url });
+            void authenticate(session).catch(() => { send(session, { type: 'REVOKED', error: 'Script scope changed.' }); session.port.disconnect(); });
+        }
     }
 }
 function acceptPort(port: chrome.runtime.Port) {
@@ -106,7 +123,7 @@ function acceptPort(port: chrome.runtime.Port) {
         sessions.add(session);
         let serial: Promise<unknown> = Promise.resolve();
         const timeout = setTimeout(() => { if (!session.initialized) port.disconnect(); }, 5000);
-        port.onDisconnect.addListener(() => { void chrome.runtime.lastError; clearTimeout(timeout); sessions.delete(session); });
+        port.onDisconnect.addListener(() => { void chrome.runtime.lastError; clearTimeout(timeout); sessions.delete(session); clearSourceNotifications(session); });
         port.onMessage.addListener((message: GMClientMessage) => {
             serial = serial.then(async () => {
                 if (!message || typeof message !== 'object') throw new Error('Invalid GM message.');
@@ -136,7 +153,8 @@ function acceptPort(port: chrome.runtime.Port) {
                     const names = Object.keys(stored).filter(name => name.startsWith(prefix(session)));
                     const values = canRead ? Object.fromEntries(names.map(name => [name.slice(prefix(session).length), stored[name]])) : {};
                     session.initialized = true; clearTimeout(timeout);
-                    send(session, { type: 'READY', values, keys: names.map(name => name.slice(prefix(session).length)) });
+                    const notifications = hasGrant(grants, 'GM_notification') ? await registerNotificationSource(notificationSource(session)) : undefined;
+                    send(session, { type: 'READY', values, keys: names.map(name => name.slice(prefix(session).length)), ...(notifications ? { notifications } : {}) });
                     });
                     writeQueue = initialize.catch(() => {});
                     await initialize;

@@ -7,6 +7,7 @@ import { setupSecurityRules } from './security';
 
 import { setupMessageListener } from './messageHandler';
 import { setupAutoBackup } from './backup';
+import { setupNotificationListeners } from './notifications';
 
 // Runs on every worker start, including unpacked reloads and re-enabling.
 // Configure protection independently of userscript permission/registration.
@@ -29,6 +30,7 @@ setupGMListener();
 setupNavigationListener();
 setupMessageListener();
 setupAutoBackup();
+setupNotificationListeners();
 
 // Firefox exposes this runtime event only after its optional permission is
 // granted. Keep the management UI working before that first grant.
@@ -41,12 +43,4 @@ chrome.permissions.onRemoved.addListener(permissions => {
   if (!permissions.permissions?.includes('userScripts')) return;
   revokeGMSessions();
   setupGMListener();
-});
-
-
-// Generic notification click handler
-chrome.notifications.onClicked.addListener((notificationId) => {
-  if (notificationId) {
-    chrome.runtime.openOptionsPage();
-  }
 });

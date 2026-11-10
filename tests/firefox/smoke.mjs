@@ -35,7 +35,7 @@ try {
     assert.equal(await driver.executeScript(() => chrome.permissions.contains({permissions:['userScripts']})),true);
     await driver.wait(async()=> (await driver.findElements(By.css('.scripts-page'))).length > 0,15000);
     assert.equal((await driver.findElements(By.css('iframe'))).length,0);
-    const code = `// ==UserScript==\n// @name Firefox Smoke\n// @match http://127.0.0.1/*\n// @grant GM_getValue\n// @grant GM_setValue\n// ==/UserScript==\n(async()=>{const value=GM_getValue('counter',0);document.documentElement.dataset.sm050=String(value);await GM_setValue('counter',value+1);document.documentElement.dataset.sm050Saved='yes';})();`;
+    const code = `// ==UserScript==\n// @name Firefox Smoke\n// @match http://127.0.0.1/*\n// @grant GM_getValue\n// @grant GM_setValue\n// @grant GM_notification\n// ==/UserScript==\n(async()=>{const value=GM_getValue('counter',0);document.documentElement.dataset.sm050=String(value);await GM_setValue('counter',value+1);document.documentElement.dataset.sm050Saved='yes';try{await GM.notification({text:'scope check',url:'https://example.com/',onclick:()=>{}});document.documentElement.dataset.sm052='unexpected';}catch(error){document.documentElement.dataset.sm052=error.message;}})();`;
     const response = await driver.executeScript(script=>chrome.runtime.sendMessage({type:'SAVE_SCRIPT',approved:true,script}),{id:'firefox-smoke',name:'Firefox Smoke',code,enabled:true});
     assert.equal(response.success,true,response.error);
     const worlds = await driver.executeScript(()=>chrome.userScripts.getWorldConfigurations());
@@ -44,6 +44,8 @@ try {
     await driver.get(site);
     await driver.wait(()=>driver.executeScript(()=>document.documentElement.dataset.sm050Saved==='yes'),15000);
     assert.equal(await driver.executeScript(()=>document.documentElement.dataset.sm050),'0');
+    await driver.wait(()=>driver.executeScript(()=>!!document.documentElement.dataset.sm052),15000);
+    assert.match(await driver.executeScript(()=>document.documentElement.dataset.sm052),/source origin/);
     await driver.navigate().refresh();
     await driver.wait(()=>driver.executeScript(()=>document.documentElement.dataset.sm050Saved==='yes'),15000);
     assert.equal(await driver.executeScript(()=>document.documentElement.dataset.sm050),'1');

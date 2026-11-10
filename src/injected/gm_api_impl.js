@@ -3,14 +3,14 @@
     const SCRIPT_ID = "__SCRIPT_ID__";
     const SCRIPT_TOKEN = "__SCRIPT_TOKEN__";
     const granted = new Set(JSON.parse('__GRANTED_PERMISSIONS__'));
-    const info = { script: JSON.parse('__SCRIPT_OBJ__'), scriptHandler: 'Shieldmonkey', version: '0.5.0' };
+    const info = { script: JSON.parse('__SCRIPT_OBJ__'), scriptHandler: 'Shieldmonkey', version: '0.5.2' };
     const api = typeof browser !== 'undefined' ? browser : typeof chrome !== 'undefined' ? chrome : null;
     // The default shared world has messaging disabled. Never execute the user
     // body there, including after Chromium's per-document world limit fallback.
     if (!api?.runtime?.connect) { console.warn('ShieldMonkey: isolated execution unavailable for ' + SCRIPT_NAME); return; }
     const connectNative = api.runtime.connect.bind(api.runtime);
-    const values = new Map(), keys = new Set(), changes = new Map(), requests = new Map(), revisions = new Map();
-    let port, nextId = 0, listenerId = 0, ready = false, revoked = false, reconnecting = false;
+    const values = new Map(), keys = new Set(), changes = new Map(), requests = new Map(), revisions = new Map(), notifications = new Map();
+    let port, nextId = 0, listenerId = 0, notificationId = 0, ready = false, revoked = false, reconnecting = false;
     let initialResolve, initialReject;
     const initial = new Promise((resolve, reject) => { initialResolve = resolve; initialReject = reject; });
     function permitted(operation) {
@@ -26,6 +26,7 @@
     }
     function apply(name, value) { if (value === undefined) { values.delete(name); keys.delete(name); } else { values.set(name, value); keys.add(name); } }
     function rejectRequests(error) { for (const request of requests.values()) { clearTimeout(request.timer); request.reject(error); } requests.clear(); }
+    function rejectNotifications(error) { for (const notification of notifications.values()) notification.reject(error); notifications.clear(); }
     function connect() {
         return new Promise(resolve => {
         try {
@@ -38,6 +39,8 @@
                     clearTimeout(timeout); values.clear(); keys.clear();
                     for (const [name, value] of Object.entries(message.values)) values.set(name, value);
                     for (const name of message.keys) keys.add(name);
+                    const active = new Set(message.notifications || []);
+                    for (const [id, notification] of notifications) if (!active.has(id)) { notifications.delete(id); notification.resolve(notification.clicked); }
                     ready = true; initialResolve(); resolve(true);
                 } else if (message.type === 'RESPONSE') {
                     const request = requests.get(message.id);
@@ -48,8 +51,26 @@
                     keys.clear(); for (const name of message.keys) keys.add(name);
                 } else if (message.type === 'URL_CHANGED') {
                     checkUrlChange();
+                } else if (message.type === 'NOTIFICATION_EVENT') {
+                    const notification = notifications.get(message.callbackId);
+                    if (!notification || revoked) return;
+                    if (message.phase === 'click' && typeof message.nonce === 'string') {
+                        notification.clicked = true;
+                        const event = new Event('click', { cancelable: true });
+                        try {
+                            const result = notification.onclick?.(event);
+                            if (result && typeof result.catch === 'function') void result.catch(error => console.error('GM_notification callback failed:', error));
+                        } catch (error) { event.preventDefault(); console.error('GM_notification callback failed:', error); }
+                        void request('GM_notification', { action: 'click', callbackId: message.callbackId, nonce: message.nonce, preventDefault: event.defaultPrevented })
+                            .catch(error => console.error('GM_notification click expired:', error));
+                    } else if (message.phase === 'done') {
+                        notifications.delete(message.callbackId);
+                        notification.clicked ||= message.clicked === true;
+                        try { notification.ondone?.(); } catch (error) { console.error('GM_notification ondone failed:', error); }
+                        notification.resolve(notification.clicked);
+                    }
                 } else if (message.type === 'REVOKED') {
-                    revoked = true; initialReject(new Error(message.error)); rejectRequests(new Error(message.error)); current.disconnect();
+                    revoked = true; initialReject(new Error(message.error)); rejectRequests(new Error(message.error)); rejectNotifications(new Error(message.error)); current.disconnect();
                 }
             });
             current.onDisconnect.addListener(() => {
@@ -72,6 +93,7 @@
             await connect();
         }
         reconnecting = false;
+        if (!ready) rejectNotifications(new Error('Notification context closed.'));
     }
     function request(operation, data) {
         check(operation);
@@ -127,10 +149,22 @@
         void request('GM_download', data).catch(error => console.error('GM_download failed:', error));
         return { abort() { console.warn('Download cancellation is not supported.'); } };
     };
-    const notification = (text, title, image) => {
-        const input = typeof text === 'string' ? { text, title, image } : { text: text.text, title: text.title, image: text.image };
-        void request('GM_notification', input).catch(error => console.error('GM_notification failed:', error));
+    const notification = (text, title, image, onclick) => {
+        check('GM_notification');
+        return new Promise((resolve, reject) => {
+            if (notifications.size >= 32) { reject(new Error('Too many active notifications.')); return; }
+            const details = typeof text === 'string' ? { text, title, image, onclick } : text;
+            if (!details || typeof details !== 'object') { reject(new Error('Invalid notification.')); return; }
+            const callbackId = ++notificationId;
+            const click = typeof details.onclick === 'function' ? details.onclick : undefined;
+            const done = typeof details.ondone === 'function' ? details.ondone : typeof title === 'function' ? title : undefined;
+            notifications.set(callbackId, { onclick: click, ondone: done, clicked: false, resolve, reject });
+            const data = { text: details.text, title: details.title, image: details.image, url: details.url,
+                silent: details.silent, timeout: details.timeout, callbackId, hasOnClick: !!click };
+            void request('GM_notification', data).catch(error => { notifications.delete(callbackId); reject(error); });
+        });
     };
+    const legacyNotification = (...args) => { void notification(...args).catch(error => console.error('GM_notification failed:', error)); };
     const setClipboard = data => { check('GM_setClipboard'); return navigator.clipboard.writeText(String(data)); };
     const addStyle = css => { const style = document.createElement('style'); style.textContent = css; (document.head || document.documentElement).append(style); return style; };
     const addElement = (parent, tag, attributes) => {
@@ -147,7 +181,7 @@
     const bindings = { GM_getValue: getValue, GM_getValues: getValues, GM_setValue: setValue, GM_setValues: setValues,
         GM_deleteValue: deleteValue, GM_deleteValues: deleteValues, GM_listValues: listValues,
         GM_addValueChangeListener: addListener, GM_removeValueChangeListener: removeListener,
-        GM_openInTab: openInTab, GM_closeTab: closeTab, GM_download: download, GM_notification: notification, GM_setClipboard: setClipboard };
+        GM_openInTab: openInTab, GM_closeTab: closeTab, GM_download: download, GM_notification: legacyNotification, GM_setClipboard: setClipboard };
     for (const [name, fn] of Object.entries(bindings)) if (permitted(name) || (name === 'GM_removeValueChangeListener' && permitted('GM_addValueChangeListener'))) scope[name] = fn;
     scope.GM_addStyle = addStyle; scope.GM_addElement = addElement; scope.GM_log = GM.log;
     for (const name of ['getResourceText', 'getResourceURL', 'getTab', 'saveTab', 'getTabs', 'webRequest', 'cookie', 'registerMenuCommand', 'unregisterMenuCommand', 'xmlhttpRequest']) {

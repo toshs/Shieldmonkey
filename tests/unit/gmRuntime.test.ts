@@ -23,7 +23,7 @@ function createPort(url = 'https://example.com/', extensionId = 'test-extension'
     const messages: Array<Record<string, unknown>> = [];
     let disconnected = false;
     const disconnect = () => { if (disconnected) return; disconnected = true; clientDisconnect.emit(); serverDisconnect.emit(); };
-    const server = { name: 'shieldmonkey-gm-v1', sender: { id: extensionId, url, tab: { id: ports.length + 1 }, frameId: 0 }, onMessage: serverMessages, onDisconnect: serverDisconnect, disconnect,
+    const server = { name: 'shieldmonkey-gm-v1', sender: { id: extensionId, url, tab: { id: ports.length + 1 }, frameId: 0, documentId: 'doc-' + (ports.length + 1) }, onMessage: serverMessages, onDisconnect: serverDisconnect, disconnect,
         postMessage(message: unknown) { messages.push(message as Record<string, unknown>); queueMicrotask(() => clientMessages.emit(message)); } } as unknown as chrome.runtime.Port;
     const client = { name: 'shieldmonkey-gm-v1', onMessage: clientMessages, onDisconnect: clientDisconnect, disconnect,
         postMessage(message: unknown) { queueMicrotask(() => serverMessages.emit(message)); } };
@@ -39,16 +39,19 @@ beforeEach(async () => {
     vi.resetModules(); ports = []; connections = new Event(); storageEvents = new Event(); tabsRemove = vi.fn();
     stored = { securityVersion: 1, extensionEnabled: true, scripts: [{ id: 'private', name: 'Private', code: scriptCode, enabled: true, grantedPermissions: ['GM_getValue', 'GM_setValue', 'GM_listValues'], token: 'private-token' }],
         [prefix()+'secret']: 'own-secret', [prefix('other')+'secret']: 'other-script-secret', [prefix('private', 'https://other.example')+'secret']: 'other-origin-secret' };
+    const sessionStore: Record<string, unknown> = {};
     vi.stubGlobal('chrome', {
         runtime: { id: 'test-extension', getURL: (path: string) => 'chrome-extension://test-extension/'+path, onUserScriptConnect: connections },
-        storage: { onChanged: storageEvents, local: {
+        storage: { session: { setAccessLevel: vi.fn().mockResolvedValue(undefined), get: vi.fn(async () => ({...sessionStore})), set: vi.fn(async values => { Object.assign(sessionStore,structuredClone(values)); }) }, onChanged: storageEvents, local: {
             setAccessLevel: vi.fn().mockResolvedValue(undefined),
             get: vi.fn(async (keys: string | string[] | null) => keys === null ? { ...stored } : Object.fromEntries((typeof keys === 'string' ? [keys] : keys).filter(key => key in stored).map(key => [key, stored[key]]))),
             set: vi.fn(async (values: Record<string, unknown>) => { Object.assign(stored, values); }),
             remove: vi.fn(async (keys: string | string[]) => { for (const key of typeof keys === 'string' ? [keys] : keys) delete stored[key]; }),
         } },
         permissions: { contains: vi.fn().mockResolvedValue(true) },
-        tabs: { remove: tabsRemove, create: vi.fn() }, downloads: { download: vi.fn() }, notifications: { create: vi.fn() },
+        tabs: { remove: tabsRemove, create: vi.fn(), update: vi.fn().mockResolvedValue({}), get: vi.fn(async (id: number) => ({ id, url: ports[id-1]?.server.sender?.url, windowId: 1 })) },
+        webNavigation: { getFrame: vi.fn(async ({tabId}: {tabId: number}) => ({ url: ports[tabId-1]?.server.sender?.url, documentId: 'doc-'+tabId })) },
+        downloads: { download: vi.fn() }, notifications: { create: vi.fn(async (id: string) => id), clear: vi.fn().mockResolvedValue(true) },
     });
     const { setupGMListener } = await import('../../src/background/gmRequestHandler'); setupGMListener();
 });
@@ -137,6 +140,56 @@ describe('private GM runtime', () => {
         await vi.waitFor(()=>expect(ports[1].messages.some(message=>message.type==='READY')).toBe(true));
         await vm.runInContext('GM_setValue("after-reconnect",42)',context);
         expect(context.starts).toBe(1);expect(stored[prefix()+'after-reconnect']).toBe(42);
+    });
+    it('delivers notification callbacks only in their isolated runtime, with preventDefault and legacy forms', async () => {
+        (stored.scripts as Script[])[0].grantedPermissions = ['GM_notification'];
+        const context = vm.createContext({console,Map,Set,Promise,Object,String,Error,JSON,Event:globalThis.Event,
+            setTimeout:(fn:()=>void,delay:number)=>{const timer=setTimeout(fn,delay);timer.unref();return timer;},clearTimeout,
+            chrome:{runtime:{connect:()=>createPort().client}},localStorage:{length:0},history:{pushState(){},replaceState(){}},
+            addEventListener(){},location:{href:'https://example.com/'},navigator:{},
+        }); context.window=context;
+        await vm.runInContext(getGMAPIScript({id:'private',name:'Private',version:'1',permissions:['GM_notification'],token:'private-token'},
+            'window.completed=GM.notification({text:"hello",url:"/next",onclick:event=>{window.clicked=(window.clicked||0)+1;event.preventDefault();},ondone:()=>{window.done=true;}}); window.legacy=GM_notification("legacy","Title",undefined,()=>{window.legacyClicked=true;});'),context);
+        await vi.waitFor(()=>expect(chrome.notifications.create).toHaveBeenCalledTimes(2));
+        const {handleNotificationClick}=await import('../../src/background/notifications');
+        for(const args of vi.mocked(chrome.notifications.create).mock.calls) await handleNotificationClick(args[0] as string);
+        expect(await context.completed).toBe(true); expect(context.clicked).toBe(1);expect(context.done).toBe(true);
+        expect(context.legacy).toBeUndefined();expect(context.legacyClicked).toBe(true);
+        expect(chrome.tabs.create).not.toHaveBeenCalled();expect(chrome.tabs.update).toHaveBeenCalledWith(1,{active:true});
+    });
+    it.each(['grant','token','enabled','browser permission'])('rechecks %s at notification click time', async change => {
+        const script=(stored.scripts as Script[])[0];script.grantedPermissions=['GM_notification'];
+        const port=createPort();await init(port);
+        port.client.postMessage({type:'REQUEST',id:1,operation:'GM_notification',data:{text:'notice',callbackId:1,hasOnClick:false,url:'/next'}});
+        await vi.waitFor(()=>expect(port.messages.some(message=>message.id===1)).toBe(true));
+        expect(port.messages.find(message=>message.id===1)?.error).toBeUndefined();
+        if(change==='grant')script.grantedPermissions=[];
+        if(change==='token')script.token='rotated';
+        if(change==='enabled')script.enabled=false;
+        if(change==='browser permission')vi.mocked(chrome.permissions.contains).mockResolvedValue(false);
+        const {handleNotificationClick}=await import('../../src/background/notifications');
+        await handleNotificationClick(vi.mocked(chrome.notifications.create).mock.calls[0][0] as string);
+        expect(chrome.tabs.create).not.toHaveBeenCalled();expect(chrome.tabs.update).not.toHaveBeenCalled();
+        expect(port.messages.some(message=>message.type==='NOTIFICATION_EVENT')).toBe(false);
+    });
+    it("cannot acknowledge another origin's notification even for the same script and token", async () => {
+        const script=(stored.scripts as Script[])[0];script.grantedPermissions=['GM_notification'];
+        script.code=scriptCode.replace('// ==/UserScript==','// @match https://other.example/*\n// ==/UserScript==');
+        const source=createPort(),other=createPort('https://other.example/');await init(source);await init(other);
+        source.client.postMessage({type:'REQUEST',id:1,operation:'GM_notification',data:{text:'notice',callbackId:1,hasOnClick:true,url:'/next',tabId:999,origin:'https://other.example'}});
+        await vi.waitFor(()=>expect(source.messages.some(message=>message.id===1)).toBe(true));
+        const {handleNotificationClick}=await import('../../src/background/notifications');
+        const handling=handleNotificationClick(vi.mocked(chrome.notifications.create).mock.calls[0][0] as string);
+        await vi.waitFor(()=>expect(source.messages.some(message=>message.phase==='click')).toBe(true));
+        const nonce=source.messages.find(message=>message.phase==='click')!.nonce;
+        other.client.postMessage({type:'REQUEST',id:2,operation:'GM_notification',data:{action:'click',callbackId:1,nonce,preventDefault:false}});
+        await vi.waitFor(()=>expect(other.messages.some(message=>message.id===2)).toBe(true));
+        expect(other.messages.find(message=>message.id===2)?.error).toMatch(/expired/);
+        source.client.postMessage({type:'REQUEST',id:3,operation:'GM_notification',data:{action:'click',callbackId:1,nonce,preventDefault:true}});
+        await handling;
+        expect(chrome.tabs.create).not.toHaveBeenCalled();
+        expect(chrome.tabs.update).toHaveBeenCalledExactlyOnceWith(1,{active:true});
+        expect(other.messages.some(message=>message.type==='NOTIFICATION_EVENT')).toBe(false);
     });
     it('does not execute user code in a world without extension messaging', async () => {
         const context = vm.createContext({ console, Set, Map, JSON, chrome: {} }); context.window = context;
