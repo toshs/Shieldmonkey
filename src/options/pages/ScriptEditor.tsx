@@ -175,6 +175,7 @@ const ScriptEditor = () => {
                 name: metadata.name || (isNew ? 'New Script' : scriptFromContext!.name),
                 namespace: metadata.namespace || (isNew ? undefined : scriptFromContext!.namespace),
                 code: currentCode,
+                lastSavedCode: savedCode ?? undefined,
                 enabled: isNew || reviewPending ? true : scriptFromContext!.enabled,
                 installDate: isNew ? Date.now() : scriptFromContext!.installDate,
                 updateDate: Date.now(),
@@ -202,7 +203,7 @@ const ScriptEditor = () => {
             saveInProgress.current = false;
             setIsSaving(false);
         }
-    }, [code, isDirty, reviewPending, scriptFromContext, saveScript, showGenericModal, t, isNew, newScriptId, navigate, location.state]);
+    }, [code, isDirty, reviewPending, scriptFromContext, saveScript, showGenericModal, t, isNew, newScriptId, navigate, location.state, savedCode]);
 
     const handleDelete = () => {
         if (isNew) {

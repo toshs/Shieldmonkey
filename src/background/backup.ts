@@ -1,12 +1,10 @@
-import { serializeBackup } from '../utils/backupManager';
-import type { Script } from '../options/types';
+import { handleExportBackup } from './scripts';
 import { getDirectoryHandle } from '../utils/backupStorage';
 
 let running = false;
 let dirty = false;
 
-async function downloadMobileBackup(scripts: Script[], version: string): Promise<void> {
-    const data = serializeBackup(scripts, version);
+async function downloadMobileBackup(data: string): Promise<void> {
     const filename = 'shieldmonkey_autobackup_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
     const url = 'data:application/json;charset=utf-8,' + encodeURIComponent(data);
     const id = await new Promise<number>((resolve, reject) => {
@@ -40,13 +38,13 @@ async function downloadMobileBackup(scripts: Script[], version: string): Promise
 }
 
 async function backUpCurrentScripts(): Promise<void> {
-    const { autoBackup, autoBackupMode, scripts } = await chrome.storage.local.get(['autoBackup', 'autoBackupMode', 'scripts']);
+    const { autoBackup, autoBackupMode, scripts, backupIncludeValues } = await chrome.storage.local.get(['autoBackup', 'autoBackupMode', 'scripts', 'backupIncludeValues']);
     if (!autoBackup || !Array.isArray(scripts)) return;
     try {
-        const version = chrome.runtime.getManifest().version;
         // Workspace files use the host's conflict-aware synchronization queue.
         if (autoBackupMode === 'folder' || (autoBackupMode !== 'download' && await getDirectoryHandle())) return;
-        await downloadMobileBackup(scripts as Script[], version);
+        const backup = await handleExportBackup(backupIncludeValues === true);
+        await downloadMobileBackup(backup.text);
         await chrome.storage.local.set({ lastBackupTime: new Date().toISOString() });
         await chrome.storage.local.remove('lastBackupError');
     } catch (error) {

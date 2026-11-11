@@ -1,14 +1,15 @@
-import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { build } from 'vite';
 
 const output = 'dist-vivaldi';
 const htmlPath = join(output, 'src/popup/index.html');
 const manifest = JSON.parse(readFileSync(join(output, '.vite/manifest.json'), 'utf8'));
 const popup = manifest['src/popup/index.html'];
 
-// A classic script starts faster in Android Vivaldi. Fail the build if Vite
-// starts splitting this entry into modules, which classic scripts cannot load.
-if (!popup?.file || popup.imports?.length || popup.dynamicImports?.length) {
+// Keep the fast classic entry while sharing matching/security helpers in source.
+// Dynamic features do not belong in the popup. Static imports are bundled below.
+if (!popup?.file || popup.dynamicImports?.length) {
     throw new Error('Vivaldi popup must be a self-contained JavaScript entry');
 }
 
@@ -21,8 +22,14 @@ if (html.split(original).length !== 2) {
 
 // Android Vivaldi reads unpacked extension files through the document provider.
 // Each extra directory adds a noticeable delay, so keep both popup files at the root.
-copyFileSync(join(output, popup.file), join(output, 'popup.js'));
-const preparedHtml = html.replace(original, replacement);
+await build({
+    configFile: false,
+    build: {
+        emptyOutDir: false, outDir: resolve(output), sourcemap: false,
+        lib: { entry: resolve(output, popup.file), name: 'ShieldMonkeyPopup', formats: ['iife'], fileName: () => 'popup.js' },
+    },
+});
+const preparedHtml = html.replace(original, replacement).replace(/<link rel="modulepreload"[^>]*>/g, '');
 writeFileSync(htmlPath, preparedHtml);
 writeFileSync(join(output, 'popup.html'), preparedHtml);
 

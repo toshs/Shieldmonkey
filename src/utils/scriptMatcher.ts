@@ -12,7 +12,7 @@ export function isScriptMatchingUrl(scriptCode: string, url: string): boolean {
     return isMetadataMatchingUrl(parseMetadata(scriptCode), url);
 }
 
-export function isMetadataMatchingUrl(metadata: Metadata, url: string): boolean {
+export function isMetadataMatchingUrl(metadata: Pick<Metadata, 'match' | 'include' | 'exclude'>, url: string): boolean {
     if (metadata.exclude.some(pattern => matchScriptGlob(pattern, url))) return false;
     if (metadata.match.length === 0 && metadata.include.length === 0) return matchPattern('<all_urls>', url);
     return metadata.match.some(pattern => matchPattern(pattern, url)) ||

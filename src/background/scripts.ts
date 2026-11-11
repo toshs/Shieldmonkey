@@ -1,3 +1,8 @@
+import { serializeGM, gmValueRevision, changedGMValues } from './gmQueue';
+import { collectValueBackup, validateValueBackup, valueBackupFields } from '../shared/valueBackup';
+import { serializeBackup } from '../utils/backupManager';
+import { libraryRevision } from '../shared/library';
+import { assertLibraryRevision } from '../shared/library';
 import { worldIdFor } from '../shared/identity';
 import { parseMetadata } from '../utils/metadataParser';
 import { getGMAPIScript } from '../utils/scriptGenerator';
@@ -9,7 +14,8 @@ import { stateReady } from './state';
 
 let queue: Promise<unknown> = Promise.resolve();
 function serialize<T>(work: () => Promise<T>): Promise<T> {
-    const result = queue.then(work, work); queue = result.catch(() => {}); return result;
+    const run = () => serializeGM(work);
+    const result = queue.then(run, run); queue = result.catch(() => {}); return result;
 }
 export function runAtFor(value?: string): chrome.extensionTypes.RunAt {
     const normalized = value?.replace(/-/g, '_');
@@ -89,7 +95,7 @@ async function commitLibrary(scripts: Script[], previous: Script[], fields: Reco
             const add = wanted.filter(reg => !registrations.some(old => old.id === reg.id && same(old, reg)));
             if (add.length) await registerUserScripts(add);
         }
-        await chrome.storage.local.set({ scripts, ...fields });
+        await chrome.storage.local.set({ scripts, libraryRevision: crypto.randomUUID(), ...fields });
     } catch (error) {
         if (available) {
             await unregisterUserScripts().catch(() => {});
@@ -107,21 +113,23 @@ export function reloadAllScripts(): Promise<void> {
         await commitLibrary(scripts as Script[], scripts as Script[]);
     });
 }
-export function handleSaveScript(value: unknown, approved = false): Promise<void> {
+export function handleSaveScript(value: unknown, approved = false, expectedCode?: string): Promise<void> {
     return serialize(async () => {
         await stateReady; validateScript(value);
         const data = await chrome.storage.local.get('scripts');
         const previous = (data.scripts || []) as Script[];
         const old = previous.find(script => script.id === value.id);
+        if (expectedCode !== undefined && old?.code !== expectedCode) throw new Error('This script changed in another editor. Reload and review before saving.');
         const updated = protectScript(value, old, approved);
         if (updated.pendingApproval) throw new Error('Script permission review is required.');
         await commitLibrary([...previous.filter(script => script.id !== value.id), updated], previous);
     });
 }
-export function handleToggleScript(id: string, enabled: boolean, approved = false): Promise<void> {
+export function handleToggleScript(id: string, enabled: boolean, approved = false, expectedRevision?: string): Promise<void> {
     return serialize(async () => {
         await stateReady;
-        const data = await chrome.storage.local.get('scripts');
+        const data = await chrome.storage.local.get(['scripts', 'libraryRevision']);
+        if (expectedRevision !== undefined) assertLibraryRevision(data.libraryRevision, expectedRevision);
         const previous = (data.scripts || []) as Script[];
         const old = previous.find(script => script.id === id);
         if (!old) throw new Error('Script not found.');
@@ -146,27 +154,52 @@ export function handleDeleteScript(id: string): Promise<void> {
         await commitLibrary((scripts as Script[]).filter(script => script.id !== id), scripts as Script[]);
     });
 }
-export function handleApplyLibrary(values: unknown, folders?: unknown, restoring = false): Promise<void> {
+export function handleApplyLibrary(values: unknown, folders?: unknown, restoring = false, expectedRevision?: string, valueRestore?: { values: unknown; revision: string }): Promise<void> {
     return serialize(async () => {
         await stateReady; validateLibrary(values);
         if (folders !== undefined && (!Array.isArray(folders) || folders.some(folder => typeof folder !== 'string' || folder.split('/').some((part: string) => !part || part === '.' || part === '..' || (part.includes('\\') || [...part].some(char => char.charCodeAt(0) < 32)))))) throw new Error('Invalid folders.');
-        const data = await chrome.storage.local.get('scripts');
+        const data = await chrome.storage.local.get(['scripts', 'libraryRevision']);
+        if (expectedRevision !== undefined) assertLibraryRevision(data.libraryRevision, expectedRevision);
         const previous = (data.scripts || []) as Script[];
-        const scripts = values.map(script => protectScript(script, previous.find(old => old.id === script.id)));
-        await commitLibrary(scripts, previous, { ...(folders !== undefined ? { scriptFolders: folders } : {}), ...(restoring ? { backupRestoreMarker: crypto.randomUUID() } : {}) });
+        let scripts = values.map(script => protectScript(script, previous.find(old => old.id === script.id)));
+        let fields: Record<string, unknown> = {};
+        if (valueRestore) {
+            if (!restoring || valueRestore.revision !== gmValueRevision()) throw new Error('Saved script data changed. Review the restore again.');
+            const saved = validateValueBackup(valueRestore.values, new Set(scripts.map(script => script.id)));
+            fields = valueBackupFields(saved);
+            const changedIds = new Set(saved.map(scope => scope.scriptId));
+            scripts = scripts.map(script => changedIds.has(script.id) ? { ...script, token: crypto.randomUUID() } : script);
+        }
+        await commitLibrary(scripts, previous, { ...fields, ...(folders !== undefined ? { scriptFolders: folders } : {}), ...(restoring ? { backupRestoreMarker: crypto.randomUUID() } : {}) });
+        if (valueRestore) changedGMValues();
     });
 }
 
-export function handleImportScripts(values: unknown, approvals: unknown): Promise<void> {
+export function handleImportScripts(values: unknown, approvals: unknown, expectedRevision?: string): Promise<void> {
     return serialize(async () => {
         await stateReady; validateLibrary(values);
         if (!Array.isArray(approvals) || approvals.some(id => typeof id !== 'string')) throw new Error('Invalid import approval.');
-        const { scripts = [] } = await chrome.storage.local.get('scripts');
+        const data = await chrome.storage.local.get(['scripts', 'libraryRevision']);
+        if (expectedRevision !== undefined) assertLibraryRevision(data.libraryRevision, expectedRevision);
+        const scripts = data.scripts || [];
         const previous = scripts as Script[];
         const approvedIds = new Set(approvals);
         const imported = values.map(script => protectScript(script, previous.find(old => old.id === script.id), approvedIds.has(script.id)));
         if (imported.some(script => script.pendingApproval)) throw new Error('Import permission review is required.');
         const ids = new Set(imported.map(script => script.id));
         await commitLibrary([...previous.filter(script => !ids.has(script.id)), ...imported], previous);
+    });
+}
+
+export function handleExportBackup(includeValues: boolean) {
+    return serialize(async () => {
+        await stateReady;
+        const stored = await chrome.storage.local.get(null);
+        const scripts = (stored.scripts || []) as Script[];
+        const gmValues = includeValues ? collectValueBackup(stored, new Set(scripts.map(script => script.id))) : undefined;
+        return {
+            text: serializeBackup(scripts, chrome.runtime.getManifest().version, undefined, { folders: (stored.scriptFolders || []) as string[], gmValues }),
+            revision: libraryRevision(stored.libraryRevision), valueRevision: gmValueRevision(), count: scripts.length,
+        };
     });
 }

@@ -1,3 +1,4 @@
+import { withLibraryLock } from '../shared/library';
 import popupCss from './App.css?inline';
 import { popupIcons } from './icons';
 import { popupTexts } from './messages';
@@ -113,7 +114,7 @@ function openDashboard(path = ''): void {
 }
 
 async function sendAction(type: string, payload: Record<string, unknown>): Promise<void> {
-    const response = await chrome.runtime.sendMessage({ type, ...payload }) as { success?: boolean; error?: string } | undefined;
+    const response = await withLibraryLock(() => chrome.runtime.sendMessage({ type, ...payload })) as { success?: boolean; error?: string } | undefined;
     if (!response?.success) throw new Error(response?.error || `${type} failed`);
 }
 

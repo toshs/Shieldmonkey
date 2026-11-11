@@ -1,11 +1,13 @@
 import React, { useState, useEffect, type ReactNode } from 'react';
 import { type Script, type Theme } from '../types';
 import { AppContext } from './AppContextDefinition';
+import { libraryRevision } from '../../shared/library';
 import { app } from '../../app/service';
 
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [scripts, setScripts] = useState<Script[]>([]);
+    const [revision, setRevision] = useState('');
     const [folders, setFolders] = useState<string[]>([]);
     const [theme, setTheme] = useState<Theme>('dark');
     const [extensionEnabled, setExtensionEnabled] = useState(true);
@@ -16,6 +18,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         app.call('GET_SETTINGS').then((data: any) => {
             const storedTheme = (data.theme as Theme) || 'dark';
             setTheme(storedTheme);
+            setRevision(libraryRevision(data.libraryRevision));
             if (data.extensionEnabled !== undefined) setExtensionEnabled(!!data.extensionEnabled);
 
             const storedScripts = data.scripts as Script[] | undefined;
@@ -36,6 +39,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const handleStorageChange = (changes: { [key: string]: any }, areaName: string) => {
             if (areaName === 'local') {
+                if (changes.libraryRevision) setRevision(libraryRevision(changes.libraryRevision.newValue));
                 if (changes.scripts && Array.isArray(changes.scripts.newValue)) {
                     setScripts(() => {
                         const newScripts = changes.scripts.newValue as Script[];
@@ -95,6 +99,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const reloadScripts = async () => {
         const data = await app.call('GET_SETTINGS');
         setFolders(Array.isArray(data.scriptFolders) ? data.scriptFolders : []);
+        setRevision(libraryRevision(data.libraryRevision));
         if (Array.isArray(data.scripts)) {
             setScripts(data.scripts.map((s: Script) => ({ ...s, lastSavedCode: s.code, enabled: s.enabled !== false })));
         }
@@ -120,7 +125,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     const updateLibrary = async (nextScripts: Script[], nextFolders: string[]) => {
-        await app.call('UPDATE_LIBRARY', { scripts: nextScripts, folders: nextFolders });
+        await app.call('UPDATE_LIBRARY', { scripts: nextScripts, folders: nextFolders, expectedRevision: revision });
         await reloadScripts();
     };
 

@@ -3,6 +3,10 @@ import { readPopupMetadata, matchesPopupMetadata } from '../../src/popup/data';
 import { isScriptMatchingUrl } from '../../src/utils/scriptMatcher';
 
 const examples = [
+    ['// ==UserScript==\n// @match https://*.example.com/*\n// ==/UserScript==', 'https://example.com/'],
+    ['// ==UserScript==\n// @match https://example.com/*\n// ==/UserScript==', 'https://example.com:8443/page'],
+    ['// ==UserScript==\n// @match https://example.com/exact\n// ==/UserScript==', 'https://example.com/exact#section'],
+    ['// ==UserScript==\n// @match <all_urls>\n// @exclude https://*.example.com/*\n// ==/UserScript==', 'https://example.com/'],
     ['// ==UserScript==\n// @match https://example.com/*\n// ==/UserScript==', 'https://example.com/page'],
     ['// ==UserScript==\n// @include https://*.example.com/*\n// ==/UserScript==', 'https://sub.example.com/page'],
     ['// ==UserScript==\n// @match <all_urls>\n// @exclude https://example.com/private/*\n// ==/UserScript==', 'https://example.com/private/page'],

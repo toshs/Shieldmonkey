@@ -1,3 +1,4 @@
+import { isMetadataMatchingUrl } from '../utils/scriptMatcher';
 import type { Script, Theme } from '../options/types';
 
 export interface PopupScript {
@@ -43,16 +44,8 @@ export function readPopupMetadata(code: string): PopupMetadata {
     return metadata;
 }
 
-function matchPattern(pattern: string, url: string): boolean {
-    if (pattern === '<all_urls>') return true;
-    const regex = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-    return new RegExp(`^${regex}$`).test(url);
-}
-
 export function matchesPopupMetadata(metadata: PopupMetadata, url: string): boolean {
-    if (metadata.exclude.some(pattern => matchPattern(pattern, url))) return false;
-    const patterns = [...metadata.match, ...metadata.include];
-    return (patterns.length ? patterns : ['<all_urls>']).some(pattern => matchPattern(pattern, url));
+    return isMetadataMatchingUrl(metadata, url);
 }
 
 export async function getPopupData(): Promise<PopupData> {

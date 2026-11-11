@@ -1,3 +1,4 @@
+import type { GMValueBackup } from '../shared/valueBackup';
 import type { Script, Theme } from '../shared/types';
 import type { WorkspaceConflict, WorkspaceHistoryItem, WorkspaceResolution, WorkspaceSnapshot } from '../utils/workspaceManager';
 
@@ -6,6 +7,8 @@ export interface AppActionMap {
         payload?: never;
         response: {
             scripts?: Script[];
+            libraryRevision?: string;
+            backupIncludeValues?: boolean;
             scriptFolders?: string[];
             theme?: Theme;
             locale?: string;
@@ -31,11 +34,12 @@ export interface AppActionMap {
     'RELOAD_SCRIPTS': { payload?: never; response: void };
     'IMPORT_FILE': { payload?: never; response: Script[] };
     'IMPORT_DIRECTORY': { payload?: never; response: Script[] };
-    'UPDATE_BACKUP_SETTINGS': { payload: { autoBackup?: boolean, autoBackupMode?: 'folder' | 'download', lastBackupTime?: string, lastBackupError?: string | null }; response: void };
+    'UPDATE_BACKUP_SETTINGS': { payload: { backupIncludeValues?: boolean, autoBackup?: boolean, autoBackupMode?: 'folder' | 'download', lastBackupTime?: string, lastBackupError?: string | null }; response: void };
+    'CREATE_BACKUP': { payload: { includeValues: boolean }; response: { text: string; revision: string; valueRevision: string; count: number } };
     'GET_APP_INFO': { payload?: never; response: { version: string } };
-    'UPDATE_SCRIPTS': { payload: Script[]; response: void };
-    'RESTORE_SCRIPTS': { payload: Script[]; response: void };
-    'UPDATE_LIBRARY': { payload: { scripts: Script[]; folders: string[] }; response: void };
+    'UPDATE_SCRIPTS': { payload: { scripts: Script[]; expectedRevision: string }; response: void };
+    'RESTORE_SCRIPTS': { payload: { scripts: Script[]; expectedRevision: string; folders?: string[]; gmValues?: GMValueBackup[]; valueRevision?: string }; response: void };
+    'UPDATE_LIBRARY': { payload: { scripts: Script[]; folders: string[]; expectedRevision: string }; response: void };
     'SELECT_BACKUP_DIR': { payload?: never; response: string | null };
     'GET_BACKUP_DIR_STATUS': { payload?: never; response: { supported: boolean; name: string | null; permission: PermissionState | null; needsRestore: boolean; syncError: string | null } };
     'REQUEST_BACKUP_DIR_ACCESS': { payload?: never; response: boolean };

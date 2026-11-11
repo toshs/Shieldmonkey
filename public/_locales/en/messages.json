@@ -377,5 +377,23 @@
     "message": "More than 10 scripts match this page. Your browser may stop some scripts to preserve isolation."
   },
   "workspaceAccessPersistence": { "message": "The selected folder is remembered. Choose “Allow on every visit” if your browser offers it. If temporary access expires, use Reconnect without selecting the folder again." },
-  "uiLoading": { "message": "Loading…" }
+  "uiLoading": { "message": "Loading…" },
+  "includeSavedData": {
+    "message": "Include script saved data in JSON backups"
+  },
+  "includeSavedDataNote": {
+    "message": "Includes settings and progress saved with GM.setValue. The file may contain private data. Workspace files and history contain code only."
+  },
+  "restoreSavedData": {
+    "message": "Restore $1 saved values ($2 existing keys will be overwritten)"
+  },
+  "restoreSavedDataNote": {
+    "message": "Values not in the backup are kept. Script permissions require review; reload script pages after restoring saved data."
+  },
+  "savedDataOrigins": {
+    "message": "Saved data by origin"
+  },
+  "restoreValuesChanged": {
+    "message": "Saved script data changed during preview. Review the restore again."
+  }
 }

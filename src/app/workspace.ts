@@ -1,3 +1,4 @@
+import { libraryRevision, withLibraryLock } from '../shared/library';
 import { saveDirectoryHandle, getDirectoryHandle, verifyPermission, restoreDirectoryPermission, requestSavedDirectoryAccess } from '../utils/backupStorage';
 import {
     initializeWorkspace, listWorkspaceHistory, readWorkspaceHistory, readWorkspaceState,
@@ -10,14 +11,22 @@ import type { Script } from '../options/types';
 
 let workspaceQueue: Promise<unknown> = Promise.resolve();
 function serialize<T>(work: () => Promise<T>): Promise<T> {
-    const next = workspaceQueue.then(work, work);
+    const run = () => withLibraryLock(work);
+    const next = workspaceQueue.then(run, run);
     workspaceQueue = next.then(() => undefined, () => undefined);
     return next;
 }
 
+let revision = "";
+async function readLibrary() {
+    const data = await chrome.storage.local.get(['scripts', 'scriptFolders', 'libraryRevision']);
+    revision = libraryRevision(data.libraryRevision);
+    return data;
+}
 async function applyLibrary(scripts: Script[], folders: string[]): Promise<void> {
-    const response = await chrome.runtime.sendMessage({ type: 'APPLY_LIBRARY', scripts, folders, restoring: true });
+    const response = await chrome.runtime.sendMessage({ type: 'APPLY_LIBRARY', scripts, folders, restoring: true, expectedRevision: revision });
     if (!response?.success) throw new Error(response?.error || 'Workspace update failed.');
+    revision = libraryRevision((await chrome.storage.local.get('libraryRevision')).libraryRevision);
 }
 
 async function requireHandle(write = true): Promise<FileSystemDirectoryHandle> {
@@ -40,9 +49,10 @@ export async function handleSelectBackupDir(): Promise<string> {
     try {
         const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
         if (!await verifyPermission(handle, true)) throw new Error('Folder write access is required.');
+        return await serialize(async () => {
+        const data = await readLibrary();
         const state = await readWorkspaceState(handle);
         if (!state) {
-            const data = await chrome.storage.local.get(['scripts', 'scriptFolders']);
             const scripts = Array.isArray(data.scripts) ? data.scripts as Script[] : [];
             const folders = Array.isArray(data.scriptFolders) ? data.scriptFolders as string[] : [];
             const initialized = await initializeWorkspace(handle, scripts, folders);
@@ -51,6 +61,7 @@ export async function handleSelectBackupDir(): Promise<string> {
         }
         await saveDirectoryHandle(handle);
         return handle.name;
+        });
     } catch (error) {
         if ((error as Error).name === 'AbortError') throw new Error('Selection cancelled');
         throw error;
@@ -92,7 +103,7 @@ export function handleRequestBackupDirAccess(): Promise<boolean> {
 
 async function scanWorkspaceUnlocked() {
     const handle = await requireReadyHandle();
-    const data = await chrome.storage.local.get(['scripts', 'scriptFolders']);
+    const data = await readLibrary();
     const scripts = Array.isArray(data.scripts) ? data.scripts as Script[] : [];
     const folders = Array.isArray(data.scriptFolders) ? data.scriptFolders as string[] : [];
     const result = await synchronizeWorkspace(handle, scripts, folders, applyLibrary);
@@ -116,7 +127,7 @@ export function handleRunRestore(_scripts: Script[]): Promise<{ count: number; m
     void _scripts;
     return serialize(async () => {
     const handle = await requireHandle();
-    const data = await chrome.storage.local.get(['scripts', 'scriptFolders']);
+    const data = await readLibrary();
     const currentScripts = Array.isArray(data.scripts) ? data.scripts as Script[] : [];
     const folders = Array.isArray(data.scriptFolders) ? data.scriptFolders as string[] : [];
     const count = await restoreCurrentWorkspace(handle, currentScripts, folders, applyLibrary);
@@ -130,7 +141,7 @@ export function handleRunRestore(_scripts: Script[]): Promise<{ count: number; m
 export function handleResolveWorkspaceConflict(conflict: WorkspaceConflict, resolution: WorkspaceResolution): Promise<void> {
     return serialize(async () => {
     const handle = await requireReadyHandle();
-    const data = await chrome.storage.local.get(['scripts', 'scriptFolders']);
+    const data = await readLibrary();
     await resolveWorkspaceConflict(
         handle, conflict, resolution,
         Array.isArray(data.scripts) ? data.scripts as Script[] : [],
@@ -151,7 +162,7 @@ export async function handleReadWorkspaceHistory(name: string) {
 export function handleRestoreWorkspaceHistory(name: string, scriptId?: string): Promise<number> {
     return serialize(async () => {
     const handle = await requireReadyHandle();
-    const data = await chrome.storage.local.get(['scripts', 'scriptFolders']);
+    const data = await readLibrary();
     return restoreWorkspaceHistory(
         handle, name, scriptId,
         Array.isArray(data.scripts) ? data.scripts as Script[] : [],

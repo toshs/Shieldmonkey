@@ -377,5 +377,23 @@
     "message": "このページには10本を超えるスクリプトが一致します。個別の隔離を保つため、一部が実行されない場合があります。"
   },
   "workspaceAccessPersistence": { "message": "接続先は記憶されます。ブラウザーに「毎回のアクセスを許可」が表示されたら選んでください。一時的な許可が切れた場合は「再接続」を押すだけで、フォルダーの選び直しは不要です。" },
-  "uiLoading": { "message": "読み込み中…" }
+  "uiLoading": { "message": "読み込み中…" },
+  "includeSavedData": {
+    "message": "JSON バックアップにスクリプトの保存データを含める"
+  },
+  "includeSavedDataNote": {
+    "message": "GM.setValue で保存した設定や進捗を含めます。ファイルに個人情報が含まれる場合があります。フォルダー同期と履歴はコードのみです。"
+  },
+  "restoreSavedData": {
+    "message": "保存データ $1 件も復元する（既存の $2 キーを上書き）"
+  },
+  "restoreSavedDataNote": {
+    "message": "バックアップにない値は保持します。スクリプトの権限は再確認が必要です。保存データを復元した後は、動作中の Web ページを再読み込みしてください。"
+  },
+  "savedDataOrigins": {
+    "message": "保存データのオリジン一覧"
+  },
+  "restoreValuesChanged": {
+    "message": "確認中にスクリプトの保存データが変わりました。復元を確認し直してください。"
+  }
 }

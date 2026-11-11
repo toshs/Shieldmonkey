@@ -1,3 +1,4 @@
+import { serializeGM, changedGMValues } from './gmQueue';
 import { worldIdFor } from '../shared/identity';
 import type { Script } from '../shared/types';
 import { canonicalGrant, hasGrant } from '../shared/policy';
@@ -8,7 +9,6 @@ import { acknowledgeNotificationClick, clearSourceNotifications, createGMNotific
 
 interface Session { port: chrome.runtime.Port; scriptId: string; token: string; origin: string; url: string; sender: chrome.runtime.MessageSender; initialized: boolean }
 const sessions = new Set<Session>();
-let writeQueue: Promise<unknown> = Promise.resolve();
 function send(session: Session, message: GMServerMessage) { try { session.port.postMessage(message); } catch { sessions.delete(session); clearSourceNotifications(session); try { session.port.disconnect(); } catch { /* Already closed. */ } } }
 function prefix(session: Session) { return 'gmv1:' + JSON.stringify([session.scriptId, session.origin]) + ':'; }
 async function authenticate(session: Session): Promise<Script> {
@@ -52,7 +52,7 @@ async function notifyValue(source: Session, name: string, value: unknown) {
         try {
             const script = await authenticate(target);
             const grants = script.grantedPermissions || [];
-            if (hasGrant(grants, 'GM_getValue') || hasGrant(grants, 'GM_getValues') || hasGrant(grants, 'GM_addValueChangeListener')) send(target, { type: 'VALUE_CHANGED', key: name, value, remote: target !== source });
+            if (target === source || hasGrant(grants, 'GM_getValue') || hasGrant(grants, 'GM_getValues') || hasGrant(grants, 'GM_addValueChangeListener')) send(target, { type: 'VALUE_CHANGED', key: name, value, remote: target !== source });
             else if (hasGrant(grants, 'GM_listValues')) {
                 const all = await chrome.storage.local.get(null);
                 send(target, { type: 'KEYS_CHANGED', keys: Object.keys(all).filter(key => key.startsWith(prefix(target))).map(key => key.slice(prefix(target).length)) });
@@ -79,12 +79,14 @@ async function execute(session: Session, operation: string, input: unknown): Pro
             const values = operation === 'GM_setValue' ? { [key(data.key)]: data.value } : object(data.values);
             const entries = Object.entries(values).map(([name, value]) => { if (value === undefined) throw new Error('Undefined values cannot be stored.'); return [key(name), value] as const; });
             await chrome.storage.local.set(Object.fromEntries(entries.map(([name, value]) => [base + name, value])));
+            changedGMValues();
             for (const [name, value] of entries) await notifyValue(session, name, value);
             return null;
         }
         case 'GM_deleteValue': case 'GM_deleteValues': {
             const names = operation === 'GM_deleteValue' ? [key(data.key)] : Array.isArray(data.keys) ? data.keys.map(key) : (() => { throw new Error('Invalid value keys.'); })();
             await chrome.storage.local.remove(names.map(name => base + name));
+            changedGMValues();
             for (const name of names) await notifyValue(session, name, undefined);
             return null;
         }
@@ -130,7 +132,7 @@ function acceptPort(port: chrome.runtime.Port) {
                 if (!session.initialized) {
                     if (message.type !== 'INIT' || typeof message.scriptId !== 'string' || typeof message.token !== 'string' || !message.token) throw new Error('Invalid GM initialization.');
                     session.scriptId = message.scriptId; session.token = message.token;
-                    const initialize = writeQueue.then(async () => {
+                    const initialize = serializeGM(async () => {
                     const script = await authenticate(session);
                     const actualWorld = (port.sender as chrome.runtime.MessageSender & { userScriptWorldId?: string }).userScriptWorldId;
                     if (actualWorld !== undefined) {
@@ -156,14 +158,13 @@ function acceptPort(port: chrome.runtime.Port) {
                     const notifications = hasGrant(grants, 'GM_notification') ? await registerNotificationSource(notificationSource(session)) : undefined;
                     send(session, { type: 'READY', values, keys: names.map(name => name.slice(prefix(session).length)), ...(notifications ? { notifications } : {}) });
                     });
-                    writeQueue = initialize.catch(() => {});
                     await initialize;
                     return;
                 }
                 if (message.type !== 'REQUEST' || !Number.isSafeInteger(message.id) || typeof message.operation !== 'string') throw new Error('Invalid GM request.');
                 const task = () => execute(session, message.operation, message.data);
                 try {
-                    const result = writeQueue.then(task, task); writeQueue = result.catch(() => {});
+                    const result = serializeGM(task);
                     send(session, { type: 'RESPONSE', id: message.id, result: await result });
                 } catch (error) { send(session, { type: 'RESPONSE', id: message.id, error: error instanceof Error ? error.message : String(error) }); }
             }).catch(error => { send(session, { type: 'REVOKED', error: error instanceof Error ? error.message : String(error) }); port.disconnect(); });

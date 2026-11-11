@@ -3,14 +3,14 @@
     const SCRIPT_ID = "__SCRIPT_ID__";
     const SCRIPT_TOKEN = "__SCRIPT_TOKEN__";
     const granted = new Set(JSON.parse('__GRANTED_PERMISSIONS__'));
-    const info = { script: JSON.parse('__SCRIPT_OBJ__'), scriptHandler: 'Shieldmonkey', version: '0.5.2' };
+    const info = { script: JSON.parse('__SCRIPT_OBJ__'), scriptHandler: 'Shieldmonkey', version: '0.5.3' };
     const api = typeof browser !== 'undefined' ? browser : typeof chrome !== 'undefined' ? chrome : null;
     // The default shared world has messaging disabled. Never execute the user
     // body there, including after Chromium's per-document world limit fallback.
     if (!api?.runtime?.connect) { console.warn('ShieldMonkey: isolated execution unavailable for ' + SCRIPT_NAME); return; }
     const connectNative = api.runtime.connect.bind(api.runtime);
-    const values = new Map(), keys = new Set(), changes = new Map(), requests = new Map(), revisions = new Map(), notifications = new Map();
-    let port, nextId = 0, listenerId = 0, notificationId = 0, ready = false, revoked = false, reconnecting = false;
+    const values = new Map(), keys = new Set(), changes = new Map(), requests = new Map(), confirmed = new Map(), pendingWrites = new Map(), notifications = new Map();
+    let port, writeId = 0, nextId = 0, listenerId = 0, notificationId = 0, ready = false, revoked = false, reconnecting = false;
     let initialResolve, initialReject;
     const initial = new Promise((resolve, reject) => { initialResolve = resolve; initialReject = reject; });
     function permitted(operation) {
@@ -25,6 +25,13 @@
         }
     }
     function apply(name, value) { if (value === undefined) { values.delete(name); keys.delete(name); } else { values.set(name, value); keys.add(name); } }
+    function rebuild(name, remote = false, emit = true) {
+        const old = values.get(name);
+        let value = confirmed.get(name);
+        for (const entries of pendingWrites.values()) for (const [key, next] of entries) if (key === name) value = next;
+        apply(name, value);
+        if (emit && !Object.is(old, value)) notify(name, old, value, remote);
+    }
     function rejectRequests(error) { for (const request of requests.values()) { clearTimeout(request.timer); request.reject(error); } requests.clear(); }
     function rejectNotifications(error) { for (const notification of notifications.values()) notification.reject(error); notifications.clear(); }
     function connect() {
@@ -36,8 +43,8 @@
             current.onMessage.addListener(message => {
                 if (current !== port || !message) return;
                 if (message.type === 'READY') {
-                    clearTimeout(timeout); values.clear(); keys.clear();
-                    for (const [name, value] of Object.entries(message.values)) values.set(name, value);
+                    clearTimeout(timeout); values.clear(); keys.clear(); confirmed.clear();
+                    for (const [name, value] of Object.entries(message.values)) { values.set(name, value); confirmed.set(name, value); }
                     for (const name of message.keys) keys.add(name);
                     const active = new Set(message.notifications || []);
                     for (const [id, notification] of notifications) if (!active.has(id)) { notifications.delete(id); notification.resolve(notification.clicked); }
@@ -45,8 +52,9 @@
                 } else if (message.type === 'RESPONSE') {
                     const request = requests.get(message.id);
                     if (request) { clearTimeout(request.timer); requests.delete(message.id); if (message.error) request.reject(new Error(message.error)); else request.resolve(message.result); }
-                } else if (message.type === 'VALUE_CHANGED' && message.remote) {
-                    const old = values.get(message.key); apply(message.key, message.value); notify(message.key, old, message.value, true);
+                } else if (message.type === 'VALUE_CHANGED') {
+                    if (message.value === undefined) confirmed.delete(message.key); else confirmed.set(message.key, message.value);
+                    rebuild(message.key, !!message.remote, !!message.remote);
                 } else if (message.type === 'KEYS_CHANGED') {
                     keys.clear(); for (const name of message.keys) keys.add(name);
                 } else if (message.type === 'URL_CHANGED') {
@@ -108,18 +116,20 @@
     }
     async function write(operation, entries, deleting = false) {
         check(operation);
-        const previous = entries.map(([name]) => [name, values.get(name)]);
-        const versions = entries.map(([name]) => { const version = (revisions.get(name) || 0) + 1; revisions.set(name, version); return version; });
-        entries.forEach(([name, value], index) => { apply(name, deleting ? undefined : value); notify(name, previous[index][1], deleting ? undefined : value, false); });
+        const mutation = ++writeId;
+        const updates = entries.map(([name, value]) => [name, deleting ? undefined : value]);
+        pendingWrites.set(mutation, updates);
+        for (const [name] of updates) rebuild(name);
         const data = operation === 'GM_setValue' ? { key: entries[0][0], value: entries[0][1] }
             : operation === 'GM_deleteValue' ? { key: entries[0][0] }
             : deleting ? { keys: entries.map(([name]) => name) } : { values: Object.fromEntries(entries) };
         try {
             await request(operation, data);
-            entries.forEach(([name, value], index) => { if (revisions.get(name) === versions[index]) apply(name, deleting ? undefined : value); });
         } catch (error) {
-            previous.forEach(([name, value], index) => { if (revisions.get(name) === versions[index]) apply(name, value); });
             console.error('ShieldMonkey: GM save failed:', error); throw error;
+        } finally {
+            pendingWrites.delete(mutation);
+            for (const [name] of updates) rebuild(name);
         }
     }
     connect();

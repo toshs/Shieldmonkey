@@ -1,3 +1,4 @@
+import { validateValueBackup, type GMValueBackup } from '../shared/valueBackup';
 import { exportScript } from '../shared/policy';
 import { getBackupFingerprint, getDirectoryHandle, saveBackupFingerprint, verifyPermission } from './backupStorage';
 import type { Script } from '../options/types';
@@ -12,6 +13,8 @@ export interface BackupDocument {
     version: string;
     scripts: Script[];
     files?: Record<string, ScriptFile>;
+    folders?: string[];
+    gmValues?: GMValueBackup[];
 }
 export interface RestorePlan {
     count: number;
@@ -22,6 +25,10 @@ export interface RestorePlan {
     fileEdits: number;
     missingFiles: number;
     sourceFingerprint?: string;
+    folders?: string[];
+    gmValues?: GMValueBackup[];
+    valueRevision?: string;
+    overwrittenValues?: number;
     backupScripts: Script[];
     mergedScripts: Script[];
 }
@@ -54,7 +61,7 @@ export function parseBackup(text: string): BackupDocument {
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid backup format.');
     const object = data as Record<string, unknown>;
     if (!Array.isArray(object.scripts)) throw new Error('Backup has no scripts array.');
-    if (object.formatVersion !== undefined && object.formatVersion !== 2) throw new Error('Unsupported backup format version.');
+    if (object.formatVersion !== undefined && object.formatVersion !== 2 && object.formatVersion !== 3) throw new Error('Unsupported backup format version.');
     const ids = new Set<string>();
     for (const [index, value] of object.scripts.entries()) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid script at position ' + (index + 1) + '.');
@@ -80,12 +87,15 @@ export function parseBackup(text: string): BackupDocument {
             fileNames.add(file.name);
         }
     }
+    if (object.folders !== undefined && (!Array.isArray(object.folders) || object.folders.some(path => typeof path !== 'string' || path.split('/').some((part: string) => !part || part === '.' || part === '..' || part.includes('\\') || [...part].some(c => c.charCodeAt(0) < 32))))) throw new Error('Invalid backup folders.');
+    const gmValues = object.gmValues === undefined ? undefined : validateValueBackup(object.gmValues, ids);
     return {
         formatVersion: object.formatVersion as number | undefined,
         timestamp: typeof object.timestamp === 'string' ? object.timestamp : '',
         version: typeof object.version === 'string' ? object.version : '',
         scripts: (object.scripts as Script[]).map(cleanScript),
-        files: object.files as Record<string, ScriptFile> | undefined
+        files: object.files as Record<string, ScriptFile> | undefined,
+        folders: object.folders as string[] | undefined, gmValues
     };
 }
 
@@ -108,13 +118,15 @@ export function planRestore(backupScripts: Script[], currentScripts: Script[], m
     return { count: backupScripts.length, added, updated, unchanged, localOnly, fileEdits: 0, missingFiles: 0, backupScripts: Array.from(incoming.values()), mergedScripts };
 }
 
-export function serializeBackup(scripts: Script[], version: string, files?: Record<string, ScriptFile>): string {
+export function serializeBackup(scripts: Script[], version: string, files?: Record<string, ScriptFile>, extra?: { folders?: string[]; gmValues?: GMValueBackup[] }): string {
     return JSON.stringify({
-        formatVersion: 2,
+        formatVersion: extra ? 3 : 2,
         timestamp: new Date().toISOString(),
         version,
         scripts: scripts.map(cleanScript),
-        ...(files ? { files } : {})
+        ...(files ? { files } : {}),
+        ...(extra?.folders ? { folders: extra.folders } : {}),
+        ...(extra?.gmValues ? { gmValues: extra.gmValues } : {})
     }, null, 2);
 }
 
@@ -229,17 +241,19 @@ export async function performBackup(existingHandle: FileSystemDirectoryHandle | 
     return scripts.length;
 }
 
-export async function performBackupLegacy(scripts: Script[], version: string): Promise<number> {
-    const data = serializeBackup(scripts, version);
-    const filename = 'shieldmonkey_backup_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+export async function performBackupLegacy(scripts: Script[], version: string, includeValues = false): Promise<number> {
+    void scripts; void version;
     const { app } = await import('../app/service');
+    const backup = await app.call('CREATE_BACKUP', { includeValues });
+    const data = backup.text;
+    const filename = 'shieldmonkey_backup_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
     await app.call('DOWNLOAD_JSON', { data, filename });
-    return scripts.length;
+    return backup.count;
 }
 
 export async function performRestoreLegacy(file: File, currentScripts: Script[]): Promise<RestorePlan> {
     const backup = parseBackup(await file.text());
-    return planRestore(backup.scripts, currentScripts);
+    return { ...planRestore(backup.scripts, currentScripts), folders: backup.folders, gmValues: backup.gmValues };
 }
 
 async function readFolderSnapshot(handle: FileSystemDirectoryHandle) {

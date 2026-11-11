@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Save, FolderInput, Clock, Check, AlertCircle, RotateCcw, Sun, Moon, Monitor, Upload, Download } from 'lucide-react';
 import { useApp } from '../context/useApp';
 import { useModal } from '../context/useModal';
-import { performBackupLegacy, performRestoreLegacy, planRestore, sameScript, serializeBackup, type RestorePlan } from '../../utils/backupManager';
+import { performBackupLegacy, performRestoreLegacy, planRestore, sameScript, parseBackup, type RestorePlan } from '../../utils/backupManager';
 import type { Script } from '../types';
 import { useI18n } from '../i18n/I18nContext';
 import { isMobile } from '../../utils/browserPolyfill';
@@ -30,6 +30,8 @@ const Settings = () => {
     const [classicBackupMessage, setClassicBackupMessage] = useState<string>('');
     const [classicRestoreStatus, setClassicRestoreStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [classicRestoreMessage, setClassicRestoreMessage] = useState<string>('');
+    const [includeValues, setIncludeValues] = useState(false);
+    const restoreValuesRef = useRef(false);
     const [autoBackup, setAutoBackup] = useState(false);
     const [fsSupported, setFsSupported] = useState(false);
     const [appVersion, setAppVersion] = useState<string>('');
@@ -56,6 +58,7 @@ const Settings = () => {
                 const res = await app.call('GET_SETTINGS');
                 if (res.lastBackupTime) setLastBackupTime(res.lastBackupTime);
                 if (res.lastBackupError) setLastBackupError(res.lastBackupError);
+                setIncludeValues(res.backupIncludeValues === true);
                 if (res.autoBackup !== undefined) setAutoBackup(!!res.autoBackup);
 
                 const info = await app.call('GET_APP_INFO');
@@ -150,7 +153,7 @@ const Settings = () => {
                 setBackupStatus('success');
                 setBackupMessage(t('savedScriptsMsg', [String(count)]));
             } else {
-                count = await performBackupLegacy(latest, appVersion);
+                count = await performBackupLegacy(latest, appVersion, includeValues);
                 setClassicBackupStatus('success');
                 setClassicBackupMessage(t('savedScriptsMsg', [String(count)]));
             }
@@ -182,12 +185,18 @@ const Settings = () => {
         setMessage('');
         setIsBackupLoading(true);
         try {
-            const latest = (await app.call('GET_SETTINGS')).scripts ?? [];
+            const settings = await app.call('GET_SETTINGS');
+            const latest = settings.scripts ?? [];
             if (!sameScriptList(current, latest)) throw new Error(t('restoreChangedDuringPreview'));
             const plan = planRestore(preview.backupScripts, latest, restoreModeRef.current);
             const recoveryName = 'shieldmonkey_before_restore_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
-            await app.call('DOWNLOAD_JSON', { data: serializeBackup(latest, appVersion), filename: recoveryName });
-            await app.call('RESTORE_SCRIPTS', plan.mergedScripts);
+            const restoreValues = restoreValuesRef.current && preview.gmValues !== undefined;
+            const recovery = await app.call('CREATE_BACKUP', { includeValues: restoreValues });
+            if (restoreValues && recovery.valueRevision !== preview.valueRevision) throw new Error(t('restoreValuesChanged'));
+            await app.call('DOWNLOAD_JSON', { data: recovery.text, filename: recoveryName });
+            await app.call('RESTORE_SCRIPTS', { scripts: plan.mergedScripts, expectedRevision: settings.libraryRevision ?? '',
+                folders: preview.folders ? (restoreModeRef.current === 'replace' ? preview.folders : [...new Set([...(settings.scriptFolders || []), ...preview.folders])]) : undefined,
+                ...(restoreValues ? { gmValues: preview.gmValues, valueRevision: recovery.valueRevision } : {}) });
             const warnings: string[] = [];
             try {
                 await app.call('RELOAD_SCRIPTS');
@@ -211,6 +220,7 @@ const Settings = () => {
 
     const showRestorePreview = (preview: RestorePlan, current: Script[], source: string) => {
         restoreModeRef.current = 'merge';
+        restoreValuesRef.current = preview.gmValues !== undefined;
         const currentById = new Map(current.map(script => [script.id, script]));
         const changed = preview.backupScripts.filter(script => !currentById.has(script.id) || !sameScript(currentById.get(script.id)!, script));
         const backupIds = new Set(preview.backupScripts.map(script => script.id));
@@ -220,6 +230,14 @@ const Settings = () => {
             t('confirmRestoreTitle'),
             <div className="restore-preview">
                 <p>{t('restorePreviewSource')}: <strong>{source}</strong></p>
+                {preview.gmValues !== undefined && <div>
+                    <label style={{ display: 'flex', alignItems: 'start', gap: 10 }}>
+                        <input type="checkbox" defaultChecked onChange={e => { restoreValuesRef.current = e.target.checked; }} />
+                        <span>{t('restoreSavedData', [String(preview.gmValues.reduce((n, scope) => n + Object.keys(scope.values).length, 0)), String(preview.overwrittenValues || 0)])}</span>
+                    </label>
+                    <p>{t('restoreSavedDataNote')}</p>
+                    <details><summary>{t('savedDataOrigins')}</summary><ul>{preview.gmValues.map(scope => <li key={JSON.stringify([scope.scriptId, scope.origin])}>{currentById.get(scope.scriptId)?.name || preview.backupScripts.find(s => s.id === scope.scriptId)?.name}: {scope.origin} ({Object.keys(scope.values).length})</li>)}</ul></details>
+                </div>}
                 <div className="restore-preview-counts">
                     <span>{t('restoreAdded')}: <strong>{preview.added}</strong></span>
                     <span>{t('restoreUpdated')}: <strong>{preview.updated}</strong></span>
@@ -251,6 +269,15 @@ const Settings = () => {
         try {
             const current = (await app.call('GET_SETTINGS')).scripts ?? [];
             const preview = await performRestoreLegacy(file, current);
+            if (preview.gmValues !== undefined) {
+                const state = await app.call('CREATE_BACKUP', { includeValues: true });
+                preview.valueRevision = state.valueRevision;
+                const existing = parseBackup(state.text).gmValues || [];
+                preview.overwrittenValues = preview.gmValues.reduce((count, scope) => {
+                    const prior = existing.find(item => item.scriptId === scope.scriptId && item.origin === scope.origin);
+                    return count + Object.keys(scope.values).filter(key => prior && Object.hasOwn(prior.values, key)).length;
+                }, 0);
+            }
             showRestorePreview(preview, current, file.name);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -321,6 +348,17 @@ const Settings = () => {
             showModal('error', t('backupError'), (error as Error).message);
         }
     };
+
+    const savedDataChoice = (
+<label style={{ display: 'flex', alignItems: 'start', gap: 10, marginBottom: 16 }}>
+                                            <input type="checkbox" checked={includeValues} onChange={async e => {
+                                                const checked = e.target.checked; setIncludeValues(checked);
+                                                try { await app.call('UPDATE_BACKUP_SETTINGS', { backupIncludeValues: checked }); }
+                                                catch (error) { setIncludeValues(!checked); showModal('error', t('backupError'), String(error)); }
+                                            }} />
+                                            <span>{t('includeSavedData')}<small style={{ display: 'block' }}>{t('includeSavedDataNote')}</small></span>
+                                        </label>
+    );
 
     return (
         <div className="content-scroll">
@@ -592,6 +630,7 @@ const Settings = () => {
                                         <p style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                                             {t('exportDesc') || 'Save all your scripts to a single JSON file.'}
                                         </p>
+                                        {savedDataChoice}
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                             <button
                                                 className="btn-secondary"
@@ -601,7 +640,7 @@ const Settings = () => {
                                                         setClassicBackupMessage('');
                                                         setIsBackupLoading(true);
                                                         const latest = (await app.call('GET_SETTINGS')).scripts ?? scripts;
-                                                        const count = await performBackupLegacy(latest, appVersion);
+                                                        const count = await performBackupLegacy(latest, appVersion, includeValues);
                                                         setClassicBackupStatus('success');
                                                         setClassicBackupMessage(t('savedScriptsMsg', [String(count)]));
                                                     } catch (e) {
@@ -684,6 +723,7 @@ const Settings = () => {
                                     <p style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                                         {t('exportDesc') || 'Save all your scripts to a single JSON file.'}
                                     </p>
+                                    {savedDataChoice}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                         <button
                                             className="btn-primary"

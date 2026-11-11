@@ -120,6 +120,21 @@ describe('private GM runtime', () => {
         expect(context.loaded).toBe('own-secret'); expect(context.immediate).toBe(42); expect(stored[prefix()+'new']).toBe(42);
         expect(setSiteValue).not.toHaveBeenCalled(); expect(siteData).toEqual(new Map([['other','keep']]));
     });
+    it.each([[false, false, 'own-secret'], [true, false, 'first'], [false, true, 'second']])('keeps confirmed GM values after successive writes: %s / %s', async (firstOK, secondOK, expected) => {
+        const originalSet = vi.mocked(chrome.storage.local.set).getMockImplementation()!;
+        vi.mocked(chrome.storage.local.set).mockImplementationOnce(async fields => { if (!firstOK) throw new Error('QUOTA_BYTES exceeded'); await originalSet(fields); })
+            .mockImplementationOnce(async fields => { if (!secondOK) throw new Error('QUOTA_BYTES exceeded'); await originalSet(fields); });
+        const context = vm.createContext({console:{log(){},warn(){},error(){}},Map,Set,Promise,Object,String,Error,JSON,
+            setTimeout:(fn:()=>void,delay:number)=>{const timer=setTimeout(fn,delay);timer.unref();return timer;},clearTimeout,
+            chrome:{runtime:{connect:()=>createPort().client}},localStorage:{length:0},history:{pushState(){},replaceState(){}},
+            addEventListener(){},location:{href:'https://example.com/'},navigator:{},
+        });context.window=context;
+        await vm.runInContext(getGMAPIScript({id:'private',name:'Private',version:'1',permissions:['GM_getValue','GM_setValue'],token:'private-token'},
+            'window.events=[]; window.a=GM.setValue("secret","first").catch(()=>{}); window.b=GM.setValue("secret","second").catch(()=>{});'),context);
+        await context.a;await context.b;
+        expect(vm.runInContext('GM_getValue("secret")',context)).toBe(expected);
+        expect(stored[prefix()+'secret']).toBe(expected);
+    });
     it('rejects privileged and cross-origin blob destinations', async () => {
         const {validateGMUrl} = await import('../../src/background/gmRequestHandler');
         for (const url of ['chrome://settings', 'javascript:alert(1)', 'file:///tmp/private', 'blob:https://other.example/id']) {

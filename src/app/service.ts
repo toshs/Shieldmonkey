@@ -1,3 +1,7 @@
+import { planScriptImports } from '../utils/scriptImport';
+import { confirmScriptUpdate } from './importReview';
+import { libraryRevision } from '../shared/library';
+import { withLibraryLock } from '../shared/library';
 import {
     handleSelectBackupDir, handleGetBackupDirStatus, handleRequestBackupDirAccess,
     handleRunBackup, handleRunRestore, handleScanWorkspace, handleResolveWorkspaceConflict,
@@ -11,9 +15,10 @@ import { publicScript } from '../shared/policy';
 import type { Script } from '../shared/types';
 import { isUserScriptsAvailable } from '../utils/browserPolyfill';
 
-async function sendBackground(message: object): Promise<void> {
-    const response = await chrome.runtime.sendMessage(message) as { success?: boolean; error?: string } | undefined;
+async function sendBackground<T = void>(message: object): Promise<T> {
+    const response = await withLibraryLock(() => chrome.runtime.sendMessage(message)) as { success?: boolean; error?: string; result?: T } | undefined;
     if (!response || response.success !== true) throw new Error(response?.error || 'Background operation failed.');
+    return response.result as T;
 }
 
 async function downloadJson(data: string, filename: string): Promise<void> {
@@ -133,7 +138,7 @@ async function call<T extends ActionType>(
     let result: unknown;
     switch (typedData.type) {
                 case 'GET_SETTINGS': {
-                    const keys = ['scripts', 'scriptFolders', 'theme', 'extensionEnabled', 'locale', 'lastBackupTime', 'lastBackupError', 'autoBackup', 'autoBackupMode'];
+                    const keys = ['scripts', 'scriptFolders', 'theme', 'extensionEnabled', 'locale', 'lastBackupTime', 'lastBackupError', 'autoBackup', 'autoBackupMode', 'libraryRevision', 'backupIncludeValues'];
                     result = await chrome.storage.local.get(keys);
                     const settings = result as { scripts?: Script[] };
                     settings.scripts = settings.scripts?.map(publicScript);
@@ -157,15 +162,18 @@ async function call<T extends ActionType>(
                     await chrome.storage.local.set(typedData.payload);
                     if (typedData.payload.autoBackup === true) await syncAfterChange();
                     break;
+                case 'CREATE_BACKUP':
+                    result = await sendBackground({ type: 'CREATE_BACKUP', includeValues: typedData.payload.includeValues });
+                    break;
                 case 'GET_APP_INFO':
                     result = { version: chrome.runtime.getManifest().version };
                     break;
                 case 'UPDATE_SCRIPTS':
-                    await sendBackground({ type: 'APPLY_LIBRARY', scripts: typedData.payload });
+                    await sendBackground({ type: 'APPLY_LIBRARY', ...typedData.payload });
                     await syncAfterChange();
                     break;
                 case 'RESTORE_SCRIPTS':
-                    await sendBackground({ type: 'APPLY_LIBRARY', scripts: typedData.payload, restoring: true });
+                    await sendBackground({ type: 'APPLY_LIBRARY', ...typedData.payload, restoring: true });
                     await syncAfterChange();
                     break;
                 case 'UPDATE_LIBRARY':
@@ -175,10 +183,10 @@ async function call<T extends ActionType>(
                 case 'TOGGLE_SCRIPT':
                     // We need to forward this to background
                     {
-                        const data = await chrome.storage.local.get('scripts');
+                        const data = await chrome.storage.local.get(['scripts', 'libraryRevision']);
                         const previous = (data.scripts as Script[]).find(script => script.id === typedData.payload.scriptId);
                         const approved = typedData.payload.enabled && previous ? await confirmApproval(previous, previous) : false;
-                        await sendBackground({ type: 'TOGGLE_SCRIPT', ...typedData.payload, approved });
+                        await sendBackground({ type: 'TOGGLE_SCRIPT', ...typedData.payload, approved, expectedRevision: libraryRevision(data.libraryRevision) });
                     }
                     await syncAfterChange();
                     break;
@@ -187,13 +195,16 @@ async function call<T extends ActionType>(
                     await syncAfterChange();
                     break;
                 case 'IMPORT_SCRIPTS': {
-                    const data = await chrome.storage.local.get('scripts');
+                    const data = await chrome.storage.local.get(['scripts', 'libraryRevision']);
                     const current = (data.scripts || []) as Script[];
+                    const imported = planScriptImports(typedData.payload, current);
                     const approvedIds: string[] = [];
-                    for (const script of typedData.payload) {
-                        if (await confirmApproval(script, current.find(old => old.id === script.id))) approvedIds.push(script.id);
+                    for (const script of imported) {
+                        const previous = current.find(old => old.id === script.id);
+                        if (previous) await confirmScriptUpdate(script, previous);
+                        if (await confirmApproval(script, previous)) approvedIds.push(script.id);
                     }
-                    await sendBackground({ type: 'IMPORT_SCRIPTS', scripts: typedData.payload, approvedIds });
+                    await sendBackground({ type: 'IMPORT_SCRIPTS', scripts: imported, approvedIds, expectedRevision: libraryRevision(data.libraryRevision) });
                     await syncAfterChange();
                     break;
                 }
@@ -201,7 +212,7 @@ async function call<T extends ActionType>(
                     const data = await chrome.storage.local.get('scripts');
                     const previous = (data.scripts as Script[] | undefined)?.find(script => script.id === typedData.payload.id);
                     const approved = await confirmApproval(typedData.payload, previous);
-                    await sendBackground({ type: 'SAVE_SCRIPT', script: typedData.payload, approved });
+                    await sendBackground({ type: 'SAVE_SCRIPT', script: typedData.payload, approved, expectedCode: typedData.payload.lastSavedCode });
                     await syncAfterChange();
                     break;
                 }
@@ -332,7 +343,7 @@ export const app = {
     call,
     onStorageChanged(callback: (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void) {
         const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
-            const allowed = new Set(['scripts', 'scriptFolders', 'theme', 'extensionEnabled', 'locale', 'lastBackupTime', 'lastBackupError', 'workspaceSyncError', 'autoBackup', 'autoBackupMode']);
+            const allowed = new Set(['scripts', 'scriptFolders', 'theme', 'extensionEnabled', 'locale', 'lastBackupTime', 'lastBackupError', 'workspaceSyncError', 'autoBackup', 'autoBackupMode', 'libraryRevision', 'backupIncludeValues']);
             const filtered = Object.fromEntries(Object.entries(changes).filter(([key]) => allowed.has(key)));
             if (filtered.scripts) {
                 filtered.scripts = { ...filtered.scripts,
